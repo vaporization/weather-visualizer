@@ -1,5 +1,6 @@
 // NASA FIRMS active-fire detections. A recipient's own MAP_KEY meters requests to their allowance
 // (5,000 per 10 minutes); three world pulls every half hour is a rounding error against it.
+import { keyHint } from './data.mjs';
 export const FIRE_SOURCES = ['VIIRS_SNPP_NRT', 'VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT'];
 const CONFIDENCE = { l: 0, n: 1, h: 2 };
 export function parseFirmsCsv(text, source) {
@@ -34,7 +35,7 @@ export function registerFires(app) {
   let snapshot = null, pending = null, retryAt = 0;
   app.get('/api/fires', async (_req, res) => {
     const key = process.env.FIRMS_MAP_KEY;
-    if (!key) return res.status(503).json({ error: 'Add a NASA FIRMS map key in File > Settings (or FIRMS_MAP_KEY) to load active fires.' });
+    if (!key) return res.status(503).json({ error: `Add a free NASA FIRMS map key via ${keyHint('FIRMS_MAP_KEY')} to load active fires.` });
     if (snapshot && Date.now() - Date.parse(snapshot.fetchedAt) < 1800000) return res.json(snapshot);
     if (Date.now() < retryAt && snapshot) return res.json({ ...snapshot, stale: true });
     try {
@@ -54,7 +55,7 @@ export function registerFires(app) {
       res.set('Cache-Control', 'no-store').json(await pending);
     } catch (e) {
       if (snapshot) return res.json({ ...snapshot, stale: true });
-      res.status(502).json({ error: /map key/i.test(e.message) ? 'NASA FIRMS rejected the map key. Check it in File > Settings.' : 'NASA FIRMS is unavailable. No fire detections are being shown.' });
+      res.status(502).json({ error: /map key/i.test(e.message) ? `NASA FIRMS rejected the map key. Check ${keyHint('FIRMS_MAP_KEY')}.` : 'NASA FIRMS is unavailable. No fire detections are being shown.' });
     }
   });
 }

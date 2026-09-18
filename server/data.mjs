@@ -17,6 +17,8 @@ export async function cachedFetch(url, binary = false) {
   pending.set(url, work);
   try { return await work; } finally { pending.delete(url); }
 }
+// Desktop recipients use the Settings window; the web server reads .env.local at startup.
+export const keyHint = name => process.env.WEATHER_DESKTOP ? 'File > Settings' : `${name} in .env.local (restart the server after editing)`;
 export function coordinates(query) {
   const lat = Number(query.lat), lon = Number(query.lon);
   if (query.lat === undefined || query.lon === undefined || String(query.lat).trim() === '' || String(query.lon).trim() === '' || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Valid latitude and longitude are required.');

@@ -1,5 +1,6 @@
 // AISStream pushes every position report worldwide over one websocket. The server keeps the newest
 // report per vessel while the app is asking for them, and lets the socket go when it stops.
+import { keyHint } from './data.mjs';
 const STREAM = 'wss://stream.aisstream.io/v0/stream';
 const POSITION_TYPES = new Set(['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport']);
 export function aisTime(value, now = Date.now()) {
@@ -43,12 +44,12 @@ export function registerVessels(app) {
   };
   const trim = () => { const now = Date.now(); for (const [mmsi, v] of vessels) if (now - v.at > 1800000) vessels.delete(mmsi); if (vessels.size > 120000) for (const mmsi of [...vessels.keys()].slice(0, 20000)) vessels.delete(mmsi); };
   app.get('/api/vessels', (_req, res) => {
-    if (!process.env.AISSTREAM_API_KEY) return res.status(503).json({ error: 'Add an AISStream API key in File > Settings (or AISSTREAM_API_KEY) to load ship positions.' });
+    if (!process.env.AISSTREAM_API_KEY) return res.status(503).json({ error: `Add a free AISStream API key via ${keyHint('AISSTREAM_API_KEY')} to load ship positions.` });
     lastAsked = Date.now(); connect();
     if (closer) clearTimeout(closer);
     closer = setTimeout(() => { if (Date.now() - lastAsked >= 180000) { socket?.close(); socket = null; vessels.clear(); } }, 190000);
     trim();
-    if (/api key/i.test(error)) return res.status(502).json({ error: 'AISStream rejected the API key. Check it in File > Settings.' });
+    if (/api key/i.test(error)) return res.status(502).json({ error: `AISStream rejected the API key. Check ${keyHint('AISSTREAM_API_KEY')}.` });
     const rows = vesselRows(vessels);
     if (!rows.length && !socket) return res.status(502).json({ error: error || 'AISStream is unavailable. No ship positions are being shown.' });
     res.set('Cache-Control', 'no-store').json({ fetchedAt: new Date().toISOString(), source: 'AISStream', connected: !!socket && opened > 0, since: opened ? new Date(opened).toISOString() : null, warming: !!socket && Date.now() - opened < 20000, vessels: rows });

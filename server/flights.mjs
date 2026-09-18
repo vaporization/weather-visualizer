@@ -1,3 +1,4 @@
+import { keyHint } from './data.mjs';
 const types = {
  airliner: 'A318,A319,A320,A321,A20N,A21N,A332,A333,A339,A359,A35K,A388,B737,B738,B739,B38M,B39M,B744,B748,B752,B763,B772,B77W,B788,B789,B78X,E170,E190,E195,E290,E295,CRJ7,CRJ9,AT72,DH8D',
  business: 'C25A,C25B,C25C,C510,C525,C550,C560,C680,C700,C750,CL30,CL35,CL60,GL5T,GL7T,GLEX,FA7X,FA8X',
@@ -13,7 +14,7 @@ export function normalizeFlights(data, now = Date.now()) {
 export function registerFlights(app) {
  let snapshot, pending, retryAt=0;
  app.get('/api/flights',async(_req,res)=>{
-  if(!process.env.FLIGHT_CONTACT)return res.status(503).json({error:'Configure a flight contact in the desktop File > Settings menu (or FLIGHT_CONTACT for the web server).'});
+  if(!process.env.FLIGHT_CONTACT)return res.status(503).json({error:`Add your contact email or project URL via ${keyHint('FLIGHT_CONTACT')} to load flights.`});
   if(snapshot && Date.now()-snapshot.timestamp<15000)return res.json(snapshot);
   if(Date.now()<retryAt)return res.status(503).json({error:'Flight provider temporarily unavailable; retrying shortly.'});
   try {
