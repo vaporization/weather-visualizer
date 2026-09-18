@@ -18,6 +18,7 @@
     "lucide-react": "^1.46.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "satellite.js": "^7.1.0",
     "three": "^0.186.0"
   },
   "devDependencies": {

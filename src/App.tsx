@@ -1,10 +1,11 @@
 import { connectedPads, gamepadAccessMessage } from './gamepad';
 import type { FlightData } from './flights';
 import type { TornadoData } from './tornado';
+import { layerCatalog } from './layers/catalog';
 import type { StreetData, StreetOptions } from './StreetOverlay';
 import PanelChrome, { panelAction } from './PanelChrome';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite } from 'lucide-react';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
@@ -19,6 +20,28 @@ export default function App(){
   const [radarStatus,setRadarStatus]=useState('Loading NOAA radar observations…'),[radarOpacity,setRadarOpacity]=useState(75);
   const [flightsOn,setFlightsOn]=useState(false),[flightData,setFlightData]=useState<FlightData|null>(null),[flightStatus,setFlightStatus]=useState('');
   const [gamepadOn,setGamepadOn]=useState(()=>localStorage.getItem('atmo-gamepad')!=='off'),[gamepadStatus,setGamepadStatus]=useState('Connect a controller and press a button.');
+  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite};
+  const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
+  const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
+  const loops=useRef(new Map<string,AbortController>());
+  const enabledExtra=layerCatalog.filter(s=>extra[s.id]?.on).map(s=>s.id).join(',');
+  useEffect(()=>{
+    const wanted=new Set(enabledExtra?enabledExtra.split(','):[]);
+    for(const [id,c] of loops.current) if(!wanted.has(id)){c.abort();loops.current.delete(id);}
+    for(const spec of layerCatalog){
+      if(!wanted.has(spec.id)||loops.current.has(spec.id))continue;
+      const c=new AbortController();loops.current.set(spec.id,c);let timer:ReturnType<typeof setTimeout>;
+      const load=async()=>{
+        if(document.hidden&&spec.refreshMs){timer=setTimeout(load,spec.refreshMs);return;}
+        try{const d=await getJSON<unknown>(spec.url,c.signal);if(c.signal.aborted)return;setExtra(e=>({...e,[spec.id]:{on:true,data:d,status:spec.describe(d)+((d as {stale?:boolean}).stale?' · provider unavailable, last good data':'')}}));}
+        catch(e){if(!c.signal.aborted)setExtra(x=>({...x,[spec.id]:{on:true,data:null,status:(e as Error).message}}));}
+        if(!c.signal.aborted&&spec.refreshMs)timer=setTimeout(load,spec.refreshMs);
+      };
+      void load();c.signal.addEventListener('abort',()=>clearTimeout(timer));
+    }
+  },[enabledExtra]);
+  useEffect(()=>()=>{loops.current.forEach(c=>c.abort());},[]);
+  const extraLayers=useMemo(()=>Object.fromEntries(layerCatalog.map(s=>[s.id,extra[s.id]?.on?extra[s.id].data:null])),[extra]);
   const [tornadoesOn,setTornadoesOn]=useState(false),[tornadoData,setTornadoData]=useState<TornadoData|null>(null),[tornadoStatus,setTornadoStatus]=useState('');
   useEffect(()=>{
     if(!tornadoesOn){setTornadoData(null);return;}
@@ -126,7 +149,7 @@ export default function App(){
       </div>
       <div className="header-right"><details className="panel-menu"><summary>Panels</summary><div><label className="panel-opacity">Panel opacity <output>{panelOpacity}%</output><input aria-label="Panel opacity" type="range" min="0" max="100" step="1" value={panelOpacity} onChange={e=>setPanelOpacity(Number(e.target.value))}/></label><button onClick={()=>panelAction('minimize')}>Minimize all</button><button onClick={()=>panelAction('restore')}>Restore all</button><button onClick={()=>panelAction('reset')}>Reset layout</button></div></details><span className={`data-status ${demo||error||weather?._meta?.stale?'amber':''}`}><i/>{demo?'DEMO MODE':loading?'CONNECTING':error?'WEATHER UNAVAILABLE':weather?._meta?.stale?'CACHED MODEL':hour?'FORECAST':'LIVE MODEL'}</span><button className="icon-button" aria-label="About this experience" onClick={()=>setInfo(true)}><Info size={19}/></button></div>
     </header>
-    <Globe tornadoData={tornadoesOn?tornadoData:null} stormActive={!!selectedStorm&&!demo} stormRadiusKm={stormRadiusKm} radarOpacity={radarOpacity/100} onRadarStatus={setRadarStatus} horizonLevel={horizonLevel} onToggleHorizon={toggleHorizon} onCompassChange={setNorthAngle} northUp={northUp} flightData={flightsOn?flightData:null} gamepadEnabled={gamepadOn} streetData={demo?null:streetData} streetOptions={streetOptions} onTiltChange={setActualTilt} onLook={value=>{setCameraTilt(value);setTiltLocked(true);}} tiltLocked={tiltLocked} cameraTilt={cameraTilt} mapOpacity={mapOpacity / 100} globalWeather={globalWeather} mapMode={demo?'natural':mapMode} time={globalWeather?.fetchedAt} hour={hour} location={location} atmosphere={atmosphere} layers={layers} polygons={polygons} demo={demo} quality={quality} satellite={satellite && hour===0} onStats={setStats} onSelect={choose} onReady={v=>{api.current=v;}}/>
+    <Globe extraLayers={extraLayers} tornadoData={tornadoesOn?tornadoData:null} stormActive={!!selectedStorm&&!demo} stormRadiusKm={stormRadiusKm} radarOpacity={radarOpacity/100} onRadarStatus={setRadarStatus} horizonLevel={horizonLevel} onToggleHorizon={toggleHorizon} onCompassChange={setNorthAngle} northUp={northUp} flightData={flightsOn?flightData:null} gamepadEnabled={gamepadOn} streetData={demo?null:streetData} streetOptions={streetOptions} onTiltChange={setActualTilt} onLook={value=>{setCameraTilt(value);setTiltLocked(true);}} tiltLocked={tiltLocked} cameraTilt={cameraTilt} mapOpacity={mapOpacity / 100} globalWeather={globalWeather} mapMode={demo?'natural':mapMode} time={globalWeather?.fetchedAt} hour={hour} location={location} atmosphere={atmosphere} layers={layers} polygons={polygons} demo={demo} quality={quality} satellite={satellite && hour===0} onStats={setStats} onSelect={choose} onReady={v=>{api.current=v;}}/>
     <section className="intro"><div className="eyebrow"><span className="tiny-line"/> YOUR PLANET. IN MOTION.</div><h1>Weather, with<br/><span>perspective.</span></h1><p>A living world. A closer look.</p></section>
     <aside className="weather-panel panel" aria-label="Selected location weather"><PanelChrome title="Local conditions"/>
       <div className="panel-kicker"><span><MapPin size={12}/> {demo?'SCENARIO':'LOCAL CONDITIONS'}</span><button className="unit-toggle" onClick={()=>setUnits(units==='C'?'F':'C')} aria-label="Toggle temperature units" aria-pressed={units==='F'} title="Switch Celsius / Fahrenheit"><span className={units==='C'?'active':''}>°C</span><span className={units==='F'?'active':''}>°F</span></button></div>
@@ -163,7 +186,13 @@ export default function App(){
       {layers.precipitation&&<details className="radar-controls"><summary>NOAA radar · observed</summary><small>{demo?'Radar paused during the synthetic study.':hour>0?'Observed radar paused during forecasts. The precipitation heatmap shows model forecasts.':mapMode!=='natural'?'Switch to Natural atmosphere to see observed radar.':radarStatus}</small><label>Radar opacity <output>{radarOpacity}%</output><input aria-label="Radar opacity" type="range" min="0" max="100" value={radarOpacity} onChange={e=>setRadarOpacity(Number(e.target.value))}/></label><img src="/api/radar-legend" alt="NOAA radar reflectivity color scale in dBZ"/><small>Reflectivity (dBZ), not rainfall totals. U.S. regional coverage only; gaps are not evidence of no rain. Refreshes every 2 minutes.</small><a href="https://opengeo.ncep.noaa.gov/geoserver/www/index.html" target="_blank" rel="noreferrer">NOAA/NWS MRMS radar</a></details>}
       <button role="switch" disabled={hour>0} aria-checked={satellite && hour===0} className={`layer-option ${satellite && hour===0?'active':''}`} onClick={()=>setSatellite(v=>!v)}><Globe2 size={19}/><span>Satellite clouds<small>{hour>0?'Paused during forecasts':'NASA MODIS · dated observation'}</small></span><span className="switch"><span/></span></button>
       <button role="switch" aria-checked={tornadoesOn} className={`layer-option ${tornadoesOn?'active':''}`} onClick={()=>setTornadoesOn(v=>!v)}><Tornado size={19}/><span>Tornado warnings<small>NWS warned areas · U.S. only</small></span><span className="switch"><span/></span></button>
-      {tornadoesOn&&<details className="radar-controls"><summary>NWS warned areas</summary><small role="status">{tornadoStatus||'Loading active warnings…'}</small><small>Red outlines are the official warned polygons. The funnel inside each area is an illustration at true scale — the NWS publishes warned areas, not funnel positions or tracks. Zoom below 220 km to see it. Refreshes every minute; an empty list means no warnings are active, not that no severe weather exists.</small><a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noreferrer">NOAA/NWS active alerts</a></details>}
+      {tornadoesOn&&<details className="layer-notes"><summary>NWS warned areas</summary><small role="status">{tornadoStatus||'Loading active warnings…'}</small><small>Red outlines are the official warned polygons. The funnel inside each area is an illustration at true scale — the NWS publishes warned areas, not funnel positions or tracks. Zoom below 220 km to see it. Refreshes every minute; an empty list means no warnings are active, not that no severe weather exists.</small><a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noreferrer">NOAA/NWS active alerts</a></details>}
+      <details className="layer-notes data-catalog"><summary>More data <small>{layerCatalog.filter(s=>extra[s.id]?.on).length||'off'}</small></summary>
+        {layerCatalog.map(spec=>{const on=!!extra[spec.id]?.on,Icon=layerIcons[spec.id]??Layers3;return <div key={spec.id} className="catalog-entry">
+          <button role="switch" aria-checked={on} className={`layer-option ${on?'active':''}`} onClick={()=>toggleExtra(spec.id)}><Icon size={19}/><span>{spec.name}<small>{spec.detail}</small></span><span className="switch"><span/></span></button>
+          {on&&<><small role="status">{extra[spec.id]?.status||'Loading…'}</small><small>{spec.note}</small><a href={spec.attribution.href} target="_blank" rel="noreferrer">{spec.attribution.text}</a></>}
+        </div>;})}
+      </details>
       <div className="layer-note" aria-live="polite">{demo?'Synthetic cloud study':satellite&&hour===0?stats.satellite:globalWeather?`Forecast clouds · ${mapTime?.replace('T',' ')} UTC`:mapStatus}<small>{satellite&&hour>0?'Satellite paused; showing model forecast.':'Cloud geometry is illustrative.'}</small>{!globalWeather&&!satellite&&mapStatus.includes('unavailable')&&<button onClick={()=>setMapRetry(v=>v+1)}>Retry cloud forecast</button>}</div><label className="quality-control">Render quality<select aria-label="Render quality" value={quality} onChange={e=>setQuality(e.target.value as Quality)}><option value="balanced">Balanced</option><option value="high">High</option><option value="ultra">Ultra</option></select></label><div className="layer-note"><span className="tiny-dot"/>WebGL2 · {stats.fps} FPS<small>{layers.wind ? (globalWeather ? 'GFS wind · green 0 → yellow 50 → red 100+ km/h' : mapStatus) : 'True-scale terrain · volumetric atmosphere'}</small></div>
     </aside>
     <div className="data-inspector panel"><PanelChrome title="Atmospheric data"/><details><summary>Atmospheric data <ChevronDown size={13}/></summary><div><b>{atmosphere.source}</b><span>Low / mid / high clouds: {Math.round(atmosphere.low)} / {Math.round(atmosphere.mid)} / {Math.round(atmosphere.high)}%</span><span>Cloud base: {(atmosphere.baseKm*1000).toFixed(0)} m above ground</span><small>{atmosphere.baseSource}</small><span>{observationStatus}</span>{stations[0]&&<small>{stations[0].id} · {stations[0].distanceKm} km · {new Date(stations[0].observed).toLocaleTimeString('en-GB',{timeZone:'UTC',hour:'2-digit',minute:'2-digit'})} UTC</small>}<span>{stats.satellite}</span><span>{mapStatus}</span><small>Satellite coverage is dated and may have visible gaps. Missing retrievals are not evidence of clear skies. Forecast clouds use a global model; selecting a location does not replace them.</small><span>{stats.terrain}</span><small>Cloud shapes and optical density are reconstructed. Terrain heights use measured DEM data at true scale.</small><small className="gpu-name">{stats.gpu}</small></div></details></div>

@@ -9,12 +9,16 @@ import { registerGlobalWeather } from './global-weather.mjs';
 import { createPointWeather } from './point-weather.mjs';
 import { registerRoads } from './roads.mjs';
 import { registerTornadoes } from './tornadoes.mjs';
+import { registerEarthquakes } from './earthquakes.mjs';
+import { registerSatellites } from './satellites.mjs';
 try { if (!process.env.WEATHER_DESKTOP) process.loadEnvFile('.env.local'); } catch { /* Optional local configuration. */ }
 const app = express();
 registerFlights(app);
 registerRadar(app);
 registerRoads(app);
 registerTornadoes(app);
+registerEarthquakes(app);
+registerSatellites(app);
 registerGlobalWeather(app);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 registerAtmosphereRoutes(app);

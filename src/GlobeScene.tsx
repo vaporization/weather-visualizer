@@ -14,10 +14,12 @@ import { loadSatellite } from './satellite';
 import { WeatherParticles } from './weatherParticles';
 import { cloudTexture, globalTexture, type GlobalWeather, type MapMode } from './weatherMap';
 import { TornadoLayer, type TornadoData } from './tornado';
+import { layerCatalog } from './layers/catalog';
+import type { GlobeLayer } from './layers/types';
 
 export type GlobeAPI = { zoom: (factor: number) => void; reset: () => void; focus: () => void; streets: () => void };
 export type RenderStats = { fps: number; tiltPercent: number; altitudeKm: number; gpu: string; terrain: string; satellite: string };
-type Props = { radarOpacity:number; onRadarStatus:(status:string)=>void; horizonLevel: boolean; onToggleHorizon: () => void; onCompassChange: (angle: number | null) => void; northUp: boolean; flightData: FlightData | null; gamepadEnabled: boolean; streetData: StreetData | null; streetOptions: StreetOptions; onTiltChange: (tilt: number) => void; onLook: (tilt: number) => void; tiltLocked: boolean; cameraTilt: number; mapOpacity: number; globalWeather: GlobalWeather | null; mapMode: MapMode; time?: string; hour: number; location: Location; atmosphere: AtmosphereState; layers: Layers; polygons: number[][][]; demo: boolean; stormActive: boolean; stormRadiusKm: number; tornadoData: TornadoData | null; quality: Quality; satellite: boolean; onSelect: (p: Location) => void; onReady: (api: GlobeAPI) => void; onStats: (stats: RenderStats) => void };
+type Props = { radarOpacity:number; onRadarStatus:(status:string)=>void; horizonLevel: boolean; onToggleHorizon: () => void; onCompassChange: (angle: number | null) => void; northUp: boolean; flightData: FlightData | null; gamepadEnabled: boolean; streetData: StreetData | null; streetOptions: StreetOptions; onTiltChange: (tilt: number) => void; onLook: (tilt: number) => void; tiltLocked: boolean; cameraTilt: number; mapOpacity: number; globalWeather: GlobalWeather | null; mapMode: MapMode; time?: string; hour: number; location: Location; atmosphere: AtmosphereState; layers: Layers; polygons: number[][][]; demo: boolean; stormActive: boolean; stormRadiusKm: number; tornadoData: TornadoData | null; extraLayers: Record<string, unknown>; quality: Quality; satellite: boolean; onSelect: (p: Location) => void; onReady: (api: GlobeAPI) => void; onStats: (stats: RenderStats) => void };
 function coordinates(p: THREE.Vector3): Location { const n = p.clone().normalize(); return { lat: Math.asin(n.y) * 180 / Math.PI, lon: Math.atan2(-n.z, n.x) * 180 / Math.PI, name: 'Selected location', region: 'Earth · geographic selection' }; }
 function dispose(group: THREE.Object3D) { group.traverse(obj => { const m = obj as THREE.Mesh; m.geometry?.dispose(); if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach(mat => mat.dispose()); }); }
 function sunGlow() {
@@ -31,7 +33,7 @@ function sunGlow() {
 
 export default function GlobeScene(props: Props) {
   const host = useRef<HTMLDivElement>(null); const latest = useRef(props); latest.current = props;
-  const state = useRef<{ flights: FlightLayer; streets: StreetOverlay; shell: WeatherShell; particles: WeatherParticles; grid: THREE.Group; extent: THREE.Group; camera: THREE.PerspectiveCamera; renderer: THREE.WebGLRenderer; focus: (near: boolean) => void; marker: THREE.Group; sun: THREE.DirectionalLight; sunSprite: THREE.Sprite; terrain: Terrain; tornadoes: TornadoLayer; ambient: THREE.AmbientLight } | null>(null);
+  const state = useRef<{ flights: FlightLayer; streets: StreetOverlay; shell: WeatherShell; particles: WeatherParticles; grid: THREE.Group; extent: THREE.Group; camera: THREE.PerspectiveCamera; renderer: THREE.WebGLRenderer; focus: (near: boolean) => void; marker: THREE.Group; sun: THREE.DirectionalLight; sunSprite: THREE.Sprite; terrain: Terrain; tornadoes: TornadoLayer; scene: THREE.Scene; dataLayers: Map<string, GlobeLayer>; ambient: THREE.AmbientLight } | null>(null);
   const clickedLocation = useRef<Location | null>(null);
   const mountedLocation = useRef<Location>(props.location);
   useEffect(() => {
@@ -66,6 +68,7 @@ export default function GlobeScene(props: Props) {
     const flights = new FlightLayer(); scene.add(flights.group); let flightTick=0;
     const particles = new WeatherParticles(); scene.add(particles.rain, particles.snow, particles.wind);
     const tornadoes = new TornadoLayer(); scene.add(tornadoes.group);
+    const dataLayers = new Map<string, GlobeLayer>();
     const satelliteController = new AbortController();
     const date = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     loadSatellite(date, satelliteController.signal).then(({ texture, instruments }) => {
@@ -109,7 +112,7 @@ export default function GlobeScene(props: Props) {
       clickAim = null; heading = 0; roll = 0; zoomRadius = null;
       destination = { position: globePoint(latest.current.location.lat, latest.current.location.lon, Math.max(1.00002, camera.position.length())), target: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) };
     };
-    state.current = { flights, streets, shell, particles, grid, extent, camera, renderer, focus, marker, sun, sunSprite, terrain, tornadoes, ambient };
+    state.current = { flights, streets, shell, particles, grid, extent, camera, renderer, focus, marker, sun, sunSprite, terrain, tornadoes, scene, dataLayers, ambient };
     latest.current.onReady({ reset, focus: () => focus(false), zoom, streets: () => {
       focus(false);if(destination)destination.position.setLength(1+(terrain.elevationAt(latest.current.location.lat,latest.current.location.lon)+5)/EARTH_KM);
     } });
@@ -320,6 +323,7 @@ export default function GlobeScene(props: Props) {
       marker.scale.setScalar(Math.max(.00004, Math.min(1, camera.position.distanceTo(marker.position) * .5))); marker.visible = altitude > 20;
       particles.update(camera, latest.current.location, latest.current.atmosphere, latest.current.layers, reduced ? 0 : now / 1000);
       tornadoes.update(terrain, altitude, reduced ? 0 : now / 1000);
+      for (const layer of dataLayers.values()) layer.update({ camera, terrain, altitudeKm: altitude, seconds: reduced ? 0 : now / 1000, now: Date.now() });
       terrain.advance(reduced ? 1 : dt);
       if (now - terrainTick > 750) { terrainTick = now; terrain.update(camera, renderer.domElement.clientHeight); }
       streets.update(terrain,camera,latest.current.streetOptions);
@@ -355,7 +359,7 @@ export default function GlobeScene(props: Props) {
       });
       if (now - statsTime > 1250) { latest.current.onStats({ fps: Math.round(frames * 1000 / (now - statsTime)), tiltPercent: actualTilt, altitudeKm: altitude, gpu, terrain: terrainStatus, satellite: satelliteStatus }); frames = 0; statsTime = now; }
     }; frame = requestAnimationFrame(animate);
-    return () => { alive = false; window.removeEventListener('keydown',key);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',clearKeys);document.removeEventListener('visibilitychange',clearKeys); satelliteController.abort(); cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); flights.dispose(); scene.remove(flights.group); terrain.dispose(); streets.dispose(); scene.remove(streets.mesh); terrainDepth.dispose(); shell.dispose(); particles.dispose(); tornadoes.dispose(); scene.remove(shell.mesh, terrain.group, tornadoes.group, particles.rain, particles.snow, particles.wind); dispose(scene); map.dispose(); sunSprite.material.map?.dispose(); renderer.dispose(); canvas.removeEventListener('wheel', wheel); flightTip.remove(); canvas.remove(); state.current = null; };
+    return () => { alive = false; window.removeEventListener('keydown',key);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',clearKeys);document.removeEventListener('visibilitychange',clearKeys); satelliteController.abort(); cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); flights.dispose(); scene.remove(flights.group); terrain.dispose(); streets.dispose(); scene.remove(streets.mesh); terrainDepth.dispose(); shell.dispose(); particles.dispose(); tornadoes.dispose(); dataLayers.forEach(l => { scene.remove(l.group); l.dispose(); }); dataLayers.clear(); scene.remove(shell.mesh, terrain.group, tornadoes.group, particles.rain, particles.snow, particles.wind); dispose(scene); map.dispose(); sunSprite.material.map?.dispose(); renderer.dispose(); canvas.removeEventListener('wheel', wheel); flightTip.remove(); canvas.remove(); state.current = null; };
   }, []);
   useEffect(() => {
     const s = state.current; if (!s) return;
@@ -394,6 +398,14 @@ export default function GlobeScene(props: Props) {
     for (const ring of props.polygons) s.extent.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring.map(p => globePoint(p[1], p[0], 1.0003))), new THREE.LineBasicMaterial({ color: 0xf5b976, transparent: true, opacity: .85 })));
   }, [props.polygons]);
   useEffect(()=>{state.current?.tornadoes.setData(props.tornadoData);},[props.tornadoData]);
+  useEffect(() => {
+    const s = state.current; if (!s) return;
+    for (const spec of layerCatalog) {
+      const data = props.extraLayers[spec.id], existing = s.dataLayers.get(spec.id);
+      if (data != null) { const layer = existing ?? spec.create(); if (!existing) { s.dataLayers.set(spec.id, layer); s.scene.add(layer.group); } layer.setData(data); }
+      else if (existing) { s.scene.remove(existing.group); existing.dispose(); s.dataLayers.delete(spec.id); }
+    }
+  }, [props.extraLayers]);
   useEffect(()=>{state.current?.flights.setData(props.flightData);},[props.flightData]);
   useEffect(()=>{state.current?.streets.setData(props.streetData);},[props.streetData]);
   useEffect(()=>{if(state.current)state.current.shell.material.uniforms.radarOpacity.value=props.radarOpacity;},[props.radarOpacity]);

@@ -24,6 +24,10 @@ Renderer Node integration is disabled and context isolation is enabled. The sett
 | server/flights.mjs | Civilian flight filtering, freshness and provider requests |
 | server/tornadoes.mjs | NWS tornado warning polygons, expiry filtering and centroids |
 | src/tornado.ts | Warned-area outlines and the illustrative funnel rendering |
+| server/earthquakes.mjs | USGS event feed normalisation and short cache |
+| server/satellites.mjs | CelesTrak element-set proxy, hours-long cache, TLE parsing |
+| src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
+| scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
 | server/roads.mjs | Overpass road/place retrieval |
 | desktop/main.cjs | Desktop lifecycle, server startup, menus and settings |
 | desktop/preload.cjs | Restricted settings bridge |
@@ -38,6 +42,8 @@ Tile selection covers everything inside the camera's horizon in every direction,
 Cloud rendering combines data fields with procedural geometry/detail across viewing scales. Global model cloud patterns remain independent of the clicked point, while regional data supports local interpretation and precipitation. Satellite clouds are dated observations. Neither source reconstructs exact real-world cloud geometry.
 
 Selecting an NHC system renders procedural eyewall and rainband structure centred on the published storm position. The analyzed wind extent sizes those bands where extent polygons are available, otherwise advisory intensity does; the bands are an illustration of a real system's position and size, not observed cloud geometry. Terrain under a selected location is shaded by the regional cover field offset along the solar vector; the shading is a coarse regional approximation and is suppressed for synthetic studies, satellite view and storm rendering, where the field no longer describes what is drawn.
+
+Data layers under **More data** follow one contract (`src/layers/types.ts`): a scene group, `setData`, a per-frame `update` and `dispose`, registered in `src/layers/catalog.ts` with the endpoint, refresh interval, attribution and a plain statement of what is and is not measured. Static layers (cables, data centres, dams) are bundled snapshots in `public/data`, rebuilt by `scripts/ingest-datasets.mjs`; their licenses are in `public/data/LICENSES.md` and `THIRD-PARTY.md`. Cable routes are drawn about 2 km above sea level so they read from orbit; they are not terrain-clamped on land. Satellite positions are SGP4 predictions from element sets that may be hours old, not tracking. Earthquake events include automatic solutions that USGS may later revise.
 
 Tornado warnings are the NWS warned polygons. The funnel drawn inside a warned area is an illustration at approximate true scale, placed at the polygon centroid: the NWS publishes warned areas, never funnel positions, tracks or dimensions. Funnels are hidden above 220 km. Coverage is United States only.
 
@@ -57,6 +63,8 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /storms/:id/extent | Published wind extent polygons |
 | /flights | Filtered fresh civilian flight positions |
 | /tornadoes | Active NWS tornado warning polygons and their centroids |
+| /earthquakes?feed=day | USGS events, normalised and ordered by magnitude |
+| /satellites | CelesTrak element sets for the station, visual, weather and GPS groups |
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
@@ -70,6 +78,8 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 - Radar: metadata about two minutes; image cache about five minutes; legend about 24 hours. Client marks scans over 20 minutes old delayed and hides scans over one hour old.
 - Roads: approximately 24-hour cache, bounded results and concurrency.
 - Tornado warnings: 45-second snapshots, request coalescing and 60-second failure backoff; expired and cancelled alerts are dropped. The client refreshes every minute.
+- Earthquakes: five-minute cache; on provider failure the last good feed is returned marked `stale`.
+- Satellites: element sets held for two hours and served stale on failure, per CelesTrak's request not to refetch on every load. Positions are propagated on the client with SGP4 every 200 ms.
 - Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
 
 ## Configuration and privacy
@@ -110,6 +120,10 @@ Before shipping a new release: build and run unit tests; smoke-test the packaged
 - NOAA/NCEP radar WMS: https://opengeo.ncep.noaa.gov/geoserver/www/index.html
 - NOAA National Hurricane Center: https://www.nhc.noaa.gov/
 - NOAA/NWS active alerts (tornado warnings): https://www.weather.gov/documentation/services-web-api
+- USGS Earthquake Hazards Program feeds: https://earthquake.usgs.gov/earthquakes/feed/
+- CelesTrak element sets: https://celestrak.org/
+- TeleGeography Submarine Cable Map (CC BY-NC-SA 3.0, bundled): https://www.submarinecablemap.com/
+- OpenStreetMap data-centre and dam extracts (ODbL, compiled by Gods Eye View, MIT): https://github.com/halfpixel/gods-eye-view
 - NASA GIBS/MODIS satellite products: https://nasa-gibs.github.io/gibs-api-docs/
 - Esri World Imagery: https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9
 - Mapzen terrain: https://registry.opendata.aws/terrain-tiles/
