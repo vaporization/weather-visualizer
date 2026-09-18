@@ -1,0 +1,20 @@
+import { chromium } from '@playwright/test';
+import fs from 'node:fs';
+const browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', args: ['--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+await page.goto('http://localhost:5173');
+await page.waitForTimeout(14000);
+fs.mkdirSync('test-results', { recursive: true });
+await page.screenshot({ path: 'artifacts/continuous-orbit.png' });
+await page.locator('.data-inspector summary').click();
+console.log('DATA', await page.locator('.data-inspector').innerText());
+await page.locator('.data-inspector summary').click();
+await page.getByRole('button', { name: 'Focus selected location' }).click();
+await page.waitForTimeout(3000);await page.mouse.move(1000,440);
+for(let i=0;i<20;i++){await page.mouse.wheel(0,-120);await page.waitForTimeout(120);}
+await page.waitForTimeout(17000);
+await page.screenshot({ path: 'artifacts/continuous-atmosphere.png' });
+console.log('ERRORS', errors);
+console.log('STATUS', await page.locator('.view-caption').innerText());
+await browser.close();

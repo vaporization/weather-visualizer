@@ -1,0 +1,21 @@
+import { chromium } from '@playwright/test';
+const browser = await chromium.launch({ headless: true, executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', args: ['--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('console', m => { if (m.type() === 'error' && /THREE|shader|WebGL/.test(m.text())) errors.push(m.text()); });
+await page.route('**/api/search?**', route => route.fulfill({ json: { results: [{ name: 'Mount Rainier foothills', latitude: 46.72, longitude: -121.75, admin1: 'Washington', country: 'United States' }] } }));
+await page.goto('http://localhost:5173');
+await page.getByRole('textbox', { name: 'Search for a place' }).fill('Rainier');
+await page.locator('.search-results button').first().click();
+await page.waitForTimeout(10000);
+await page.getByRole('button', { name: 'Focus selected location' }).click();
+await page.waitForTimeout(3000);await page.mouse.move(1000,440);
+for(let i=0;i<20;i++){await page.mouse.wheel(0,-120);await page.waitForTimeout(120);}
+await page.waitForTimeout(20000);
+await page.getByRole('switch', { name: 'Clouds 3D cloud cover', exact: true }).click();
+await page.waitForTimeout(1000);
+await page.screenshot({ path: 'artifacts/mountain-terrain.png' });
+await page.getByRole('switch', { name: 'Clouds 3D cloud cover', exact: true }).click();
+await page.waitForTimeout(2000);
+await page.screenshot({ path: 'artifacts/mountain-weather.png' });
+await page.locator('.data-inspector summary').click();
+console.log(await page.locator('.data-inspector').innerText()); console.log('ERRORS',errors); await browser.close();

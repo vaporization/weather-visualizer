@@ -1,0 +1,121 @@
+# Weather Visualizer — technical reference
+
+Version 1.0 · September 2026
+
+## Architecture
+
+The React/TypeScript client renders a Three.js WebGL2 globe. An Express server supplies same-origin data endpoints and serves the production Vite bundle. The Windows Electron shell runs that server as a utility process bound to 127.0.0.1 on an automatically assigned port, then opens the app in a sandboxed browser window.
+
+Renderer Node integration is disabled and context isolation is enabled. The settings window exposes only two IPC operations (read contact / save contact), restricted to its own web contents. External web links open in the system browser. The backend exits when the desktop app quits. The app requires network access to upstream data and imagery providers.
+
+## Source map
+
+| Path | Responsibility |
+|---|---|
+| src/App.tsx | UI state, panels, forecasts and controls |
+| src/GlobeScene.tsx | Three.js scene, camera and interaction integration |
+| src/weatherShell.ts | Atmospheric/weather rendering |
+| src/radar.ts | NOAA metadata and imagery atlas |
+| server/index.mjs | Express entry point, point weather, search, storms, static serving |
+| server/point-weather.mjs | Local weather retrieval and fallback caching |
+| server/global-weather.mjs | Coarse global forecast field |
+| server/atmosphere.mjs | Regional weather, METAR and satellite support |
+| server/radar.mjs | NOAA WMS metadata, images and legend |
+| server/flights.mjs | Civilian flight filtering, freshness and provider requests |
+| server/tornadoes.mjs | NWS tornado warning polygons, expiry filtering and centroids |
+| src/tornado.ts | Warned-area outlines and the illustrative funnel rendering |
+| server/roads.mjs | Overpass road/place retrieval |
+| desktop/main.cjs | Desktop lifecycle, server startup, menus and settings |
+| desktop/preload.cjs | Restricted settings bridge |
+| tests | Node unit tests and browser interaction/render tests |
+
+## Rendering and data interpretation
+
+Earth uses a 6,371 km reference radius. Terrain is streamed with a camera-driven tile hierarchy, Mapzen Terrarium elevation and Esri imagery. Tile budgets and provider resolution constrain detail.
+
+Tile selection covers everything inside the camera's horizon in every direction, not only the view frustum, so turning or looking behind does not wait for a fresh stream. Refinement is ordered by projected size, so the nearest terrain sharpens first and the remaining budget spreads outward. Render quality sets that budget (balanced 128, high 192, ultra 288 tiles); a wider budget raises GPU memory and the number of provider tile requests each installation makes. Level changes are continuous in both colour and shape. An arriving tile is drawn transparent on the surface it replaces and, over about 0.4 s, gains opacity while its vertices ease from that surface into its own (geomorphing); the tile beneath eases toward the arriving surface at the same rate, so the two coincide at every instant and neither can show through the other. A tile that is replaced while still appearing keeps appearing beneath its successor, so the composite never falls back toward the coarse globe during a continuous zoom. The coarse globe is cut away only beneath fully opaque tiles, and the cut list is sized to the whole budget where the GPU's uniform limit allows (otherwise the budget is capped at 128), so no transition exposes a gap and no opaque tile lacks a cut. Selection carries hysteresis: an existing split survives until it is clearly too fine and outranks a marginal newcomer for budget, and motion under 1% of altitude is ignored, so a parked or drifting camera does not churn its farthest tiles between levels. Tiles the camera leaves are retained, not discarded: returning within three minutes reuses them with no request, views overtaken mid-load keep their downloads, and retained tiles are dropped after three minutes unseen or when the retention limit is reached. Individual tile failures leave the coarse globe visible in that spot and are re-requested after 15 s; only a widely failing provider discards the view. Geographic coordinates are projected onto the globe; terrain elevation is not exaggerated. Imagery is not assumed to be current weather imagery.
+
+Cloud rendering combines data fields with procedural geometry/detail across viewing scales. Global model cloud patterns remain independent of the clicked point, while regional data supports local interpretation and precipitation. Satellite clouds are dated observations. Neither source reconstructs exact real-world cloud geometry.
+
+Selecting an NHC system renders procedural eyewall and rainband structure centred on the published storm position. The analyzed wind extent sizes those bands where extent polygons are available, otherwise advisory intensity does; the bands are an illustration of a real system's position and size, not observed cloud geometry. Terrain under a selected location is shaded by the regional cover field offset along the solar vector; the shading is a coarse regional approximation and is suppressed for synthetic studies, satellite view and storm rendering, where the field no longer describes what is drawn.
+
+Tornado warnings are the NWS warned polygons. The funnel drawn inside a warned area is an illustration at approximate true scale, placed at the polygon centroid: the NWS publishes warned areas, never funnel positions, tracks or dimensions. Funnels are hidden above 220 km. Coverage is United States only.
+
+The global GFS overview samples a 24 × 12 (15°) grid and approximately 27 hourly forecast steps. This is much coarser than a full native model grid. Regional requests sample 25 locations. Nearby recent METAR reports can inform present cloud-base estimates; they do not override future forecasts. Cloud layers, model heatmaps and wind use the selected forecast time.
+
+NOAA radar images are projected geographically from a five-region atlas. WMS timestamps and bounds come from each provider's capabilities response. Radar is observed reflectivity, shown at the present time only. Local rain/snow particles are separate model-driven effects and are not derived as a full 3D volume from radar.
+
+## HTTP endpoints
+
+All endpoints are under `/api`. Consult their route modules for precise query validation and response fields.
+
+| Endpoint | Purpose |
+|---|---|
+| /weather?lat=…&lon=… | Selected-location current/hourly model weather |
+| /search?q=… | Place search |
+| /storms | NHC active systems |
+| /storms/:id/extent | Published wind extent polygons |
+| /flights | Filtered fresh civilian flight positions |
+| /tornadoes | Active NWS tornado warning polygons and their centroids |
+| /radar | Region metadata, timestamps, bounds and image URLs |
+| /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
+| /radar-legend | NOAA reflectivity legend |
+
+Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`, `/api/roads`, `/api/tiles/:kind/:z/:x/:y`, `/api/satellite-palette`, and `/api/satellite/:date`. Requests validate coordinates and constrain provider paths. Failed upstream responses return explicit errors rather than synthetic live data. Cache and retry behavior varies by route.
+
+### Cache/freshness highlights
+
+- Global weather: approximately one-hour cache, batched upstream requests and retry backoff.
+- Flights: 15-second snapshots, request coalescing and 60-second failure backoff; stale feed/position rejection.
+- Radar: metadata about two minutes; image cache about five minutes; legend about 24 hours. Client marks scans over 20 minutes old delayed and hides scans over one hour old.
+- Roads: approximately 24-hour cache, bounded results and concurrency.
+- Tornado warnings: 45-second snapshots, request coalescing and 60-second failure backoff; expired and cancelled alerts are dropped. The client refreshes every minute.
+- Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
+
+## Configuration and privacy
+
+For source development, optional `.env.local` can define `FLIGHT_CONTACT`, `ESRI_API_KEY`, `PORT` and `OVERPASS_URL`. Never commit or distribute local environment files. `npm run start` serves the production bundle, normally on loopback port 5173.
+
+Desktop mode sets `WEATHER_DESKTOP=1`, skips `.env.local`, uses an ephemeral port and overrides inherited `FLIGHT_CONTACT` and `ESRI_API_KEY` with the user's saved settings. Settings are stored in `settings.json` under Electron's per-user application-data directory (`app.getPath('userData')`). The contact is not a secret API key: it identifies flight requests and is transmitted to ADSB.lol. It is stored as plain text locally. Each recipient supplies their own contact. The ArcGIS key is a real credential: with one set, imagery is requested from `ibasemaps-api.arcgis.com` and metered to that recipient's own ArcGIS Location Platform allowance (2 million tiles a month on the free tier); without one, the public `server.arcgisonline.com` endpoint is used, which Esri intends for personal use. The key is stored as plain text in settings.json and is never bundled. No centralized proxy or shared paid account is provisioned by this release.
+
+Browser preferences are held in local storage. The desktop currently uses an ephemeral HTTP origin; browser preferences may not persist between launches when the port changes. The flight contact persists independently in settings.json. Provider requests disclose the requested geographic area and the network IP to those providers. The app does not provide an offline data archive.
+
+## Build and development
+
+Use Node.js 24 and npm on Windows. From the project directory:
+
+```sh
+npm ci
+npm run dev
+npm test
+npm run build
+npm run desktop
+npm run package:win
+```
+
+`desktop` builds and starts Electron. `package:win` produces an NSIS x64 installer and unpacked application in `release/`. The installer is per-user and permits choosing the destination. No signing certificate is configured; this is an unsigned first release.
+
+The package uses an explicit file allowlist: built frontend, server modules, desktop files, documentation, package metadata and production dependencies. It excludes environment files, development artifacts and local provider configuration. Rebuild after source changes; the running development site does not modify an already-built installer.
+
+For browser tests, see `playwright.config.ts`; the current configuration targets an installed Chrome on Windows. Run `npm run test:browser` with the local app running. Hardware controller behavior and other operating systems require validation on those systems.
+
+## Release verification
+
+Before shipping a new release: build and run unit tests; smoke-test the packaged executable, local server and settings; check the archive for secrets/environment files; generate a SHA-256 checksum; verify layers and controls on a GPU-equipped Windows machine. Full installer/uninstaller behavior, signing and Windows reputation should be validated for a public release. Build artifacts alone do not demonstrate compatibility with every computer.
+
+## Data sources and attribution
+
+- Open-Meteo model weather/geocoding: https://open-meteo.com/
+- NOAA Aviation Weather Center METAR: https://aviationweather.gov/
+- NOAA/NCEP radar WMS: https://opengeo.ncep.noaa.gov/geoserver/www/index.html
+- NOAA National Hurricane Center: https://www.nhc.noaa.gov/
+- NOAA/NWS active alerts (tornado warnings): https://www.weather.gov/documentation/services-web-api
+- NASA GIBS/MODIS satellite products: https://nasa-gibs.github.io/gibs-api-docs/
+- Esri World Imagery: https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9
+- Mapzen terrain: https://registry.opendata.aws/terrain-tiles/
+- OpenStreetMap contributors / Overpass: https://www.openstreetmap.org/copyright
+- ADSB.lol public flight data: https://www.adsb.lol/docs/open-data/api/
+
+Keep the in-app source credits. Provider availability, usage limits and redistribution terms apply independently of the application. In particular, a working public endpoint is not a guarantee of unlimited usage by distributed installations. Reassess provider plans/permissions before broad commercial distribution. This release does not bundle provider data archives or a commercial data subscription.
+
+Electron/Chromium license notices are included by the packager. Dependency license files remain with packaged dependencies. No project open-source license has been selected in this release.
