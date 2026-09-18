@@ -10,3 +10,6 @@ artifacts/
 
 release/
 .env*
+
+# Third-party reference material, not part of this project
+GodsEye FOR REFERENCE/
