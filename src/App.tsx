@@ -5,7 +5,7 @@ import { layerCatalog } from './layers/catalog';
 import type { StreetData, StreetOptions } from './StreetOverlay';
 import PanelChrome, { panelAction } from './PanelChrome';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship, Zap } from 'lucide-react';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
@@ -20,28 +20,6 @@ export default function App(){
   const [radarStatus,setRadarStatus]=useState('Loading NOAA radar observations…'),[radarOpacity,setRadarOpacity]=useState(75);
   const [flightsOn,setFlightsOn]=useState(false),[flightData,setFlightData]=useState<FlightData|null>(null),[flightStatus,setFlightStatus]=useState('');
   const [gamepadOn,setGamepadOn]=useState(()=>localStorage.getItem('atmo-gamepad')!=='off'),[gamepadStatus,setGamepadStatus]=useState('Connect a controller and press a button.');
-  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship};
-  const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
-  const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
-  const loops=useRef(new Map<string,AbortController>());
-  const enabledExtra=layerCatalog.filter(s=>extra[s.id]?.on).map(s=>s.id).join(',');
-  useEffect(()=>{
-    const wanted=new Set(enabledExtra?enabledExtra.split(','):[]);
-    for(const [id,c] of loops.current) if(!wanted.has(id)){c.abort();loops.current.delete(id);}
-    for(const spec of layerCatalog){
-      if(!wanted.has(spec.id)||loops.current.has(spec.id))continue;
-      const c=new AbortController();loops.current.set(spec.id,c);let timer:ReturnType<typeof setTimeout>;
-      const load=async()=>{
-        if(document.hidden&&spec.refreshMs){timer=setTimeout(load,spec.refreshMs);return;}
-        try{const d=await getJSON<unknown>(spec.url,c.signal);if(c.signal.aborted)return;setExtra(e=>({...e,[spec.id]:{on:true,data:d,status:spec.describe(d)+((d as {stale?:boolean}).stale?' · provider unavailable, last good data':'')}}));}
-        catch(e){if(!c.signal.aborted)setExtra(x=>({...x,[spec.id]:{on:true,data:null,status:(e as Error).message}}));}
-        if(!c.signal.aborted&&spec.refreshMs)timer=setTimeout(load,spec.refreshMs);
-      };
-      void load();c.signal.addEventListener('abort',()=>clearTimeout(timer));
-    }
-  },[enabledExtra]);
-  useEffect(()=>()=>{loops.current.forEach(c=>c.abort());},[]);
-  const extraLayers=useMemo(()=>Object.fromEntries(layerCatalog.map(s=>[s.id,extra[s.id]?.on?extra[s.id].data:null])),[extra]);
   const [tornadoesOn,setTornadoesOn]=useState(false),[tornadoData,setTornadoData]=useState<TornadoData|null>(null),[tornadoStatus,setTornadoStatus]=useState('');
   useEffect(()=>{
     if(!tornadoesOn){setTornadoData(null);return;}
@@ -62,6 +40,32 @@ export default function App(){
   },[flightsOn]);
   useEffect(()=>{if(!gamepadOn)return;const timer=setInterval(()=>{const p=connectedPads().find(p=>p.mapping==='standard');const other=connectedPads().length>0;setGamepadStatus(gamepadAccessMessage() || (p?'Controller connected · sticks and triggers ready':other?'Controller detected, but its mapping is unsupported.':'No controller detected. Connect it and press A.'));},1000);return()=>clearInterval(timer);},[gamepadOn]);
   const [location,setLocation]=useState<Location>(places[0]);
+  const locationRef=useRef(location);locationRef.current=location;
+  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship,power:Zap};
+  const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
+  const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
+  const loops=useRef(new Map<string,AbortController>());
+  const enabledExtra=layerCatalog.filter(s=>extra[s.id]?.on).map(s=>s.id).join(',');
+  const regionalKey=`${location.lat.toFixed(2)},${location.lon.toFixed(2)}`,lastRegional=useRef(regionalKey);
+  useEffect(()=>{
+    const wanted=new Set(enabledExtra?enabledExtra.split(','):[]);
+    // Regional layers follow the selection: a move restarts their loops for the new place.
+    if(lastRegional.current!==regionalKey){lastRegional.current=regionalKey;for(const spec of layerCatalog) if(typeof spec.url==='function'){loops.current.get(spec.id)?.abort();loops.current.delete(spec.id);}}
+    for(const [id,c] of loops.current) if(!wanted.has(id)){c.abort();loops.current.delete(id);}
+    for(const spec of layerCatalog){
+      if(!wanted.has(spec.id)||loops.current.has(spec.id))continue;
+      const c=new AbortController();loops.current.set(spec.id,c);let timer:ReturnType<typeof setTimeout>;
+      const load=async()=>{
+        if(document.hidden&&spec.refreshMs){timer=setTimeout(load,spec.refreshMs);return;}
+        try{const d=await getJSON<unknown>(typeof spec.url==='function'?spec.url(locationRef.current):spec.url,c.signal);if(c.signal.aborted)return;setExtra(e=>({...e,[spec.id]:{on:true,data:d,status:spec.describe(d)+((d as {stale?:boolean}).stale?' · provider unavailable, last good data':'')}}));}
+        catch(e){if(!c.signal.aborted)setExtra(x=>({...x,[spec.id]:{on:true,data:null,status:(e as Error).message}}));}
+        if(!c.signal.aborted&&spec.refreshMs)timer=setTimeout(load,spec.refreshMs);
+      };
+      void load();c.signal.addEventListener('abort',()=>clearTimeout(timer));
+    }
+  },[enabledExtra,regionalKey]);
+  useEffect(()=>()=>{loops.current.forEach(c=>c.abort());},[]);
+  const extraLayers=useMemo(()=>Object.fromEntries(layerCatalog.map(s=>[s.id,extra[s.id]?.on?extra[s.id].data:null])),[extra]);
   const [hasSelection,setHasSelection]=useState(false),[streetData,setStreetData]=useState<StreetData|null>(null),[streetStatus,setStreetStatus]=useState(''),[streetRetry,setStreetRetry]=useState(0);
   const [streetOptions,setStreetOptions]=useState<StreetOptions>({roads:false,markers:false,landmarks:false,color:'#ffd166'});
   const [weather,setWeather]=useState<Weather|null>(null),[gridData,setGridData]=useState<AtmosphericGrid|null>(null);

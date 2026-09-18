@@ -4,6 +4,7 @@ import { SatelliteLayer, type SatelliteData } from './satellites';
 import { SiteLayer, type SiteData } from './sites';
 import { FireLayer, type FireData } from './fires';
 import { VesselLayer, type VesselData } from './vessels';
+import { PowerLayer, type PowerData } from './power';
 import type { LayerSpec } from './types';
 const utc = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 export const layerCatalog: LayerSpec[] = [
@@ -36,6 +37,12 @@ export const layerCatalog: LayerSpec[] = [
     attribution: { text: 'CelesTrak', href: 'https://celestrak.org/' },
     note: 'Space stations, the brightest satellites, weather and GPS constellations, propagated on this machine from CelesTrak element sets. Positions are predictions from elements that can be hours old; not tracking data. Altitude is true to scale.',
     create: () => new SatelliteLayer(), describe: d => { const s = d as SatelliteData; return `${s.satellites.length} objects · elements ${utc(s.fetchedAt)}`; },
+  },
+  {
+    id: 'power', name: 'Power grid', detail: 'OpenStreetMap · 60 km around selection', url: l => `/api/power?lat=${l.lat.toFixed(4)}&lon=${l.lon.toFixed(4)}`, refreshMs: 0,
+    attribution: { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
+    note: 'Transmission and distribution lines, substations and plants mapped in OpenStreetMap within 60 km of the selected location, draped on the terrain. Line colour follows recorded voltage (bright above 300 kV, amber above 100 kV, grey for minor or unknown). Coverage follows mapping effort; an unmapped region is blank, not unpowered. Lines appear below 2,500 km. ODbL.',
+    create: () => new PowerLayer(), describe: d => { const p = d as PowerData; return `${p.lines.length.toLocaleString()} lines · ${p.substations.length} substations · ${p.plants.length} plants within ${p.radiusKm} km${p.truncated ? ' · trimmed' : ''}`; },
   },
   {
     id: 'fires', name: 'Active fires', detail: 'NASA FIRMS · VIIRS · your key', url: '/api/fires', refreshMs: 1800000,

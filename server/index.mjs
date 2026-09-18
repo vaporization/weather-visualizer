@@ -13,6 +13,7 @@ import { registerEarthquakes } from './earthquakes.mjs';
 import { registerSatellites } from './satellites.mjs';
 import { registerFires } from './fires.mjs';
 import { registerVessels } from './vessels.mjs';
+import { registerPower } from './power.mjs';
 try { if (!process.env.WEATHER_DESKTOP) process.loadEnvFile('.env.local'); } catch { /* Optional local configuration. */ }
 const app = express();
 registerFlights(app);
@@ -23,6 +24,7 @@ registerEarthquakes(app);
 registerSatellites(app);
 registerFires(app);
 registerVessels(app);
+registerPower(app);
 registerGlobalWeather(app);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 registerAtmosphereRoutes(app);

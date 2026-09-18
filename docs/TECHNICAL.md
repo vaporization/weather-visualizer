@@ -28,6 +28,7 @@ Renderer Node integration is disabled and context isolation is enabled. The sett
 | server/satellites.mjs | CelesTrak element-set proxy, hours-long cache, TLE parsing |
 | server/fires.mjs | NASA FIRMS CSV parsing, per-cell merge across instruments, half-hour cache |
 | server/vessels.mjs | AISStream websocket, newest report per vessel, idle disconnect |
+| server/power.mjs | Regional Overpass query for lines, substations and plants; voltage parsing |
 | src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
 | scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
 | server/roads.mjs | Overpass road/place retrieval |
@@ -45,7 +46,7 @@ Cloud rendering combines data fields with procedural geometry/detail across view
 
 Selecting an NHC system renders procedural eyewall and rainband structure centred on the published storm position. The analyzed wind extent sizes those bands where extent polygons are available, otherwise advisory intensity does; the bands are an illustration of a real system's position and size, not observed cloud geometry. Terrain under a selected location is shaded by the regional cover field offset along the solar vector; the shading is a coarse regional approximation and is suppressed for synthetic studies, satellite view and storm rendering, where the field no longer describes what is drawn.
 
-Data layers under **More data** follow one contract (`src/layers/types.ts`): a scene group, `setData`, a per-frame `update` and `dispose`, registered in `src/layers/catalog.ts` with the endpoint, refresh interval, attribution and a plain statement of what is and is not measured. Static layers (cables, data centres, dams) are bundled snapshots in `public/data`, rebuilt by `scripts/ingest-datasets.mjs`; their licenses are in `public/data/LICENSES.md` and `THIRD-PARTY.md`. Cable routes are drawn about 2 km above sea level so they read from orbit; they are not terrain-clamped on land. Satellite positions are SGP4 predictions from element sets that may be hours old, not tracking. Earthquake events include automatic solutions that USGS may later revise. Fire markers are 375 m thermal anomalies, not perimeters. Ship positions are self-reported AIS relayed by volunteer receivers, so coverage is coastal and receiver-dependent. Every marker layer answers hover and click through one inspector; glyph shape encodes category and the card states the record's provenance.
+Data layers under **More data** follow one contract (`src/layers/types.ts`): a scene group, `setData`, a per-frame `update` and `dispose`, registered in `src/layers/catalog.ts` with the endpoint, refresh interval, attribution and a plain statement of what is and is not measured. Static layers (cables, data centres, dams) are bundled snapshots in `public/data`, rebuilt by `scripts/ingest-datasets.mjs`; their licenses are in `public/data/LICENSES.md` and `THIRD-PARTY.md`. Cable routes are drawn about 2 km above sea level so they read from orbit; they are not terrain-clamped on land. Satellite positions are SGP4 predictions from element sets that may be hours old, not tracking. Earthquake events include automatic solutions that USGS may later revise. Fire markers are 375 m thermal anomalies, not perimeters. Ship positions are self-reported AIS relayed by volunteer receivers, so coverage is coastal and receiver-dependent. The power grid is a regional layer: it follows the selected location and drapes its lines on the terrain by resampling every segment along the ground and lifting it by the local elevation, rebuilt whenever the terrain refines (`src/layers/lines.ts`, the same mechanism as the street overlay). Every marker layer answers hover and click through one inspector; glyph shape encodes category and the card states the record's provenance.
 
 Tornado warnings are the NWS warned polygons. The funnel drawn inside a warned area is an illustration at approximate true scale, placed at the polygon centroid: the NWS publishes warned areas, never funnel positions, tracks or dimensions. Funnels are hidden above 220 km. Coverage is United States only.
 
@@ -69,6 +70,7 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /satellites | CelesTrak element sets for the station, visual, weather and GPS groups |
 | /fires | VIIRS detections from the last day, merged per ~1 km cell (needs `FIRMS_MAP_KEY`) |
 | /vessels | Newest AIS report per vessel from the last 30 minutes (needs `AISSTREAM_API_KEY`) |
+| /power?lat=…&lon=… | Power lines with geometry, substations and plants within 60 km |
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
@@ -86,6 +88,7 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 - Satellites: element sets held for two hours and served stale on failure, per CelesTrak's request not to refetch on every load. Positions are propagated on the client with SGP4 every 200 ms.
 - Fires: three world pulls every 30 minutes on the recipient's key, served stale for two minutes after a failure.
 - Vessels: one websocket held while the layer is requested, closed three minutes after the last request; reports older than 30 minutes are dropped and at most 30,000 are served.
+- Power grid: one Overpass request per 0.01° cell, cached 24 hours, paced five seconds apart; geometry thinned to 80 m and capped at 60,000 vertices.
 - Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
 
 ## Configuration and privacy

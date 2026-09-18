@@ -13,7 +13,8 @@ export interface GlobeLayer {
   pick?(camera: THREE.Camera, x: number, y: number, width: number, height: number): Pick | null;
 }
 export type LayerSpec = {
-  id: string; name: string; detail: string; url: string;
+  id: string; name: string; detail: string;
+  url: string | ((location: { lat: number; lon: number }) => string); // a function makes the layer regional: it reloads when the selection moves
   refreshMs: number; // 0 loads once
   attribution: { text: string; href: string };
   note: string; // what is measured, what is not, and where coverage ends

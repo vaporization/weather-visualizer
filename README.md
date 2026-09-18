@@ -1,6 +1,6 @@
 # Weather Visualizer
 
-A GPU-rendered weather globe with terrain, forecast layers, NOAA radar, local conditions, roads, civilian aircraft, NHC tropical systems, NWS tornado warnings, submarine cables, data centres, dams and hydro plants, earthquakes, satellites, active fires, ships, a hover/click inspector for every marker, and mouse/keyboard/gamepad navigation. Third-party code and bundled-data licenses are listed in THIRD-PARTY.md. The interface currently retains ATMO branding.
+A GPU-rendered weather globe with terrain, forecast layers, NOAA radar, local conditions, roads, civilian aircraft, NHC tropical systems, NWS tornado warnings, submarine cables, data centres, dams and hydro plants, earthquakes, satellites, active fires, ships, the regional power grid, a hover/click inspector for every marker, and mouse/keyboard/gamepad navigation. Third-party code and bundled-data licenses are listed in THIRD-PARTY.md. The interface currently retains ATMO branding.
 
 ## Documentation
 
