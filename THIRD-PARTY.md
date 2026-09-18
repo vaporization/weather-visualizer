@@ -2,7 +2,7 @@
 
 ## Code
 
-- **Gods Eye View** — Copyright (c) 2026 Bilawal Sidhu, MIT License (https://github.com/halfpixel/gods-eye-view). The data-layer catalogue in this project (submarine cables, data centres, dams, earthquakes, satellites, fires, ships, transit) was designed with reference to that project's layer sources and its per-dataset provenance notes, and the OpenStreetMap extracts under `public/data` were compiled by its authors. No Cesium rendering code was reused; every layer here is rendered with this project's own Three.js code.
+- **Gods Eye View** — Copyright (c) 2026 Bilawal Sidhu, MIT License (https://github.com/halfpixel/gods-eye-view). The data-layer catalogue in this project (submarine cables, data centres, dams, earthquakes, satellites, fires, ships, transit, traffic cameras) was designed with reference to that project's layer sources and its per-dataset provenance notes, and the OpenStreetMap extracts under `public/data` were compiled by its authors. No Cesium rendering code was reused; every layer here is rendered with this project's own Three.js code.
 - **satellite.js** — MIT License. SGP4 propagation of published element sets.
 - **pbf** — BSD-3-Clause. Protocol-buffer reader used to decode GTFS-Realtime feeds.
 - Other dependencies carry their own licenses in `node_modules` and in the packaged application's license notices.

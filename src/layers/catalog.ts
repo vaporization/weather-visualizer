@@ -6,6 +6,7 @@ import { FireLayer, type FireData } from './fires';
 import { VesselLayer, type VesselData } from './vessels';
 import { PowerLayer, type PowerData } from './power';
 import { TransitLayer, type TransitData } from './transit';
+import { CctvLayer, type CctvData } from './cctv';
 import type { LayerSpec } from './types';
 const utc = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 export const layerCatalog: LayerSpec[] = [
@@ -50,6 +51,12 @@ export const layerCatalog: LayerSpec[] = [
     attribution: { text: 'Agency GTFS-Realtime feeds (credits per vehicle)', href: 'https://gtfs.org/documentation/realtime/reference/' },
     note: 'Live buses, trams, trains and ferries from agencies that publish open, keyless vehicle-position feeds: Boston, Austin, Minneapolis–St Paul, Helsinki, the Netherlands, Norway and South East Queensland. Only those regions are covered; everywhere else is simply not published, not empty. Each vehicle credits its agency.',
     create: () => new TransitLayer(), describe: d => { const t = d as TransitData; const live = t.feeds.filter(f => f.ok).length; return `${t.vehicles.length.toLocaleString()} vehicles · ${live}/${t.feeds.length} feeds answering · ${utc(t.fetchedAt)}`; },
+  },
+  {
+    id: 'cctv', name: 'Traffic cameras', detail: 'Public agency stills · 6 regions', url: '/api/cctv', refreshMs: 3600000,
+    attribution: { text: 'Agency camera feeds (credits per camera)', href: 'https://www.livetraffic.com/' },
+    note: 'Road and traffic cameras whose agencies publish open camera lists: London (TfL), California (Caltrans), Austin, Finland (Fintraffic), British Columbia (DriveBC) and New South Wales. Click a camera to load its current still through this app; frames are fetched on demand, not recorded, and each carries the agency credit. Other regions are not published, not empty. Markers appear below 3,000 km.',
+    create: () => new CctvLayer(), describe: d => { const c = d as CctvData; return `${c.cameras.length.toLocaleString()} cameras · ${c.sources.filter(s => s.ok).length}/${c.sources.length} lists answering`; },
   },
   {
     id: 'fires', name: 'Active fires', detail: 'NASA FIRMS · VIIRS · your key', url: '/api/fires', refreshMs: 1800000,

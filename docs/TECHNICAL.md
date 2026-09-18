@@ -6,7 +6,7 @@ Version 1.0 · September 2026
 
 The React/TypeScript client renders a Three.js WebGL2 globe. An Express server supplies same-origin data endpoints and serves the production Vite bundle. The Windows Electron shell runs that server as a utility process bound to 127.0.0.1 on an automatically assigned port, then opens the app in a sandboxed browser window.
 
-Renderer Node integration is disabled and context isolation is enabled. The settings window exposes only two IPC operations (read contact / save contact), restricted to its own web contents. External web links open in the system browser. The backend exits when the desktop app quits. The app requires network access to upstream data and imagery providers.
+Camera frames reach the browser only through the local server's allowlisted proxy: the proxy looks the camera up in the cached agency list and fetches that list's URL, so no request can be directed at an address the caller supplies. Renderer Node integration is disabled and context isolation is enabled. The settings window exposes only two IPC operations (read contact / save contact), restricted to its own web contents. External web links open in the system browser. The backend exits when the desktop app quits. The app requires network access to upstream data and imagery providers.
 
 ## Source map
 
@@ -30,6 +30,7 @@ Renderer Node integration is disabled and context isolation is enabled. The sett
 | server/vessels.mjs | AISStream websocket, newest report per vessel, idle disconnect |
 | server/power.mjs | Regional Overpass query for lines, substations and plants; voltage parsing |
 | server/transit.mjs | GTFS-Realtime feed registry and a field-number protobuf decoder |
+| server/cctv.mjs | Agency camera lists, an allowlisted frame proxy, per-source normalisers |
 | src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
 | scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
 | server/roads.mjs | Overpass road/place retrieval |
@@ -73,6 +74,8 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /vessels | Newest AIS report per vessel from the last 30 minutes (needs `AISSTREAM_API_KEY`) |
 | /power?lat=…&lon=… | Power lines with geometry, substations and plants within 60 km |
 | /transit | Vehicle positions from seven open agency feeds, decoded server-side |
+| /cctv | Camera positions from six agency lists |
+| /cctv/:source/:id.jpg | Current still for a listed camera only; frames are never fetched for caller-supplied addresses |
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
@@ -92,6 +95,7 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 - Vessels: one websocket held while the layer is requested, closed three minutes after the last request; reports older than 30 minutes are dropped and at most 30,000 are served.
 - Power grid: one Overpass request per 0.01° cell, cached 24 hours, paced five seconds apart; geometry thinned to 80 m and capped at 60,000 vertices.
 - Transit: all seven feeds fetched together at most every 15 seconds; a feed that fails keeps its last rows for five minutes and is marked stale, then reports zero.
+- Cameras: lists cached one hour; a frame is fetched on demand when a camera is pinned, cached 20 seconds, capped at 4 MB and required to be an image. Frames are never stored beyond that cache.
 - Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
 
 ## Configuration and privacy
@@ -134,6 +138,7 @@ Before shipping a new release: build and run unit tests; smoke-test the packaged
 - NOAA/NWS active alerts (tornado warnings): https://www.weather.gov/documentation/services-web-api
 - USGS Earthquake Hazards Program feeds: https://earthquake.usgs.gov/earthquakes/feed/
 - CelesTrak element sets: https://celestrak.org/
+- Traffic cameras: TfL JamCams (Powered by TfL Open Data), Caltrans, City of Austin, Fintraffic/digitraffic.fi (CC BY 4.0), DriveBC (OGL-BC), Live Traffic NSW (CC BY 4.0); stills are public agency frames, credited on each camera
 - GTFS-Realtime vehicle positions: MBTA/MassDOT, CapMetro (data.texas.gov), Metro Transit (Metropolitan Council), HSL (CC BY 4.0), OVapi/Stichting OpenGeo, Entur (NLOD), TransLink Queensland (CC BY 4.0); each feed's terms are recorded in `server/transit.mjs` and credited on every vehicle
 - NASA FIRMS active fire data (recipient's own map key): https://firms.modaps.eosdis.nasa.gov/
 - AISStream AIS relay (recipient's own key; beta service without formal terms): https://aisstream.io/

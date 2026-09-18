@@ -166,7 +166,7 @@ export default function GlobeScene(props: Props) {
       const title=document.createElement('strong');title.textContent=info.title;node.append(title);
       if(pinned){const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close');close.textContent='×';close.onclick=()=>{card.style.display='none';};node.append(close);}
       for(const line of info.lines){const p=document.createElement('span');p.textContent=line;node.append(p);}
-      if(pinned&&info.image){const img=document.createElement('img');img.alt=info.title;img.src=info.image;img.loading='lazy';node.append(img);}
+      if(pinned&&info.image){const img=document.createElement('img');img.alt=`Current still from ${info.title}`;img.src=`${info.image}${info.image.includes('?')?'&':'?'}t=${Date.now()}`;img.onerror=()=>{const gone=document.createElement('span');gone.textContent='Frame unavailable right now.';img.replaceWith(gone);};node.append(img);}
     };
     const place=(node:HTMLElement,x:number,y:number,width:number)=>{const b=canvas.getBoundingClientRect();node.style.left=`${Math.min(b.width-width-8,Math.max(8,x+14))}px`;node.style.top=`${Math.max(8,Math.min(b.height-40,y-16))}px`;};
     const pickAt=(clientX:number,clientY:number):Info|null=>{
