@@ -29,6 +29,7 @@ Renderer Node integration is disabled and context isolation is enabled. The sett
 | server/fires.mjs | NASA FIRMS CSV parsing, per-cell merge across instruments, half-hour cache |
 | server/vessels.mjs | AISStream websocket, newest report per vessel, idle disconnect |
 | server/power.mjs | Regional Overpass query for lines, substations and plants; voltage parsing |
+| server/transit.mjs | GTFS-Realtime feed registry and a field-number protobuf decoder |
 | src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
 | scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
 | server/roads.mjs | Overpass road/place retrieval |
@@ -71,6 +72,7 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /fires | VIIRS detections from the last day, merged per ~1 km cell (needs `FIRMS_MAP_KEY`) |
 | /vessels | Newest AIS report per vessel from the last 30 minutes (needs `AISSTREAM_API_KEY`) |
 | /power?lat=…&lon=… | Power lines with geometry, substations and plants within 60 km |
+| /transit | Vehicle positions from seven open agency feeds, decoded server-side |
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
@@ -89,6 +91,7 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 - Fires: three world pulls every 30 minutes on the recipient's key, served stale for two minutes after a failure.
 - Vessels: one websocket held while the layer is requested, closed three minutes after the last request; reports older than 30 minutes are dropped and at most 30,000 are served.
 - Power grid: one Overpass request per 0.01° cell, cached 24 hours, paced five seconds apart; geometry thinned to 80 m and capped at 60,000 vertices.
+- Transit: all seven feeds fetched together at most every 15 seconds; a feed that fails keeps its last rows for five minutes and is marked stale, then reports zero.
 - Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
 
 ## Configuration and privacy
@@ -131,6 +134,7 @@ Before shipping a new release: build and run unit tests; smoke-test the packaged
 - NOAA/NWS active alerts (tornado warnings): https://www.weather.gov/documentation/services-web-api
 - USGS Earthquake Hazards Program feeds: https://earthquake.usgs.gov/earthquakes/feed/
 - CelesTrak element sets: https://celestrak.org/
+- GTFS-Realtime vehicle positions: MBTA/MassDOT, CapMetro (data.texas.gov), Metro Transit (Metropolitan Council), HSL (CC BY 4.0), OVapi/Stichting OpenGeo, Entur (NLOD), TransLink Queensland (CC BY 4.0); each feed's terms are recorded in `server/transit.mjs` and credited on every vehicle
 - NASA FIRMS active fire data (recipient's own map key): https://firms.modaps.eosdis.nasa.gov/
 - AISStream AIS relay (recipient's own key; beta service without formal terms): https://aisstream.io/
 - TeleGeography Submarine Cable Map (CC BY-NC-SA 3.0, bundled): https://www.submarinecablemap.com/

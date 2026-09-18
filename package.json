@@ -16,6 +16,7 @@
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
     "lucide-react": "^1.46.0",
+    "pbf": "^5.1.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "satellite.js": "^7.1.0",

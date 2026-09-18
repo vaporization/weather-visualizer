@@ -5,7 +5,7 @@ import { layerCatalog } from './layers/catalog';
 import type { StreetData, StreetOptions } from './StreetOverlay';
 import PanelChrome, { panelAction } from './PanelChrome';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship, Zap } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship, Zap, Bus } from 'lucide-react';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
@@ -41,7 +41,7 @@ export default function App(){
   useEffect(()=>{if(!gamepadOn)return;const timer=setInterval(()=>{const p=connectedPads().find(p=>p.mapping==='standard');const other=connectedPads().length>0;setGamepadStatus(gamepadAccessMessage() || (p?'Controller connected · sticks and triggers ready':other?'Controller detected, but its mapping is unsupported.':'No controller detected. Connect it and press A.'));},1000);return()=>clearInterval(timer);},[gamepadOn]);
   const [location,setLocation]=useState<Location>(places[0]);
   const locationRef=useRef(location);locationRef.current=location;
-  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship,power:Zap};
+  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship,power:Zap,transit:Bus};
   const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
   const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
   const loops=useRef(new Map<string,AbortController>());

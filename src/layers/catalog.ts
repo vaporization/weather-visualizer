@@ -5,6 +5,7 @@ import { SiteLayer, type SiteData } from './sites';
 import { FireLayer, type FireData } from './fires';
 import { VesselLayer, type VesselData } from './vessels';
 import { PowerLayer, type PowerData } from './power';
+import { TransitLayer, type TransitData } from './transit';
 import type { LayerSpec } from './types';
 const utc = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 export const layerCatalog: LayerSpec[] = [
@@ -43,6 +44,12 @@ export const layerCatalog: LayerSpec[] = [
     attribution: { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
     note: 'Transmission and distribution lines, substations and plants mapped in OpenStreetMap within 60 km of the selected location, draped on the terrain. Line colour follows recorded voltage (bright above 300 kV, amber above 100 kV, grey for minor or unknown). Coverage follows mapping effort; an unmapped region is blank, not unpowered. Lines appear below 2,500 km. ODbL.',
     create: () => new PowerLayer(), describe: d => { const p = d as PowerData; return `${p.lines.length.toLocaleString()} lines · ${p.substations.length} substations · ${p.plants.length} plants within ${p.radiusKm} km${p.truncated ? ' · trimmed' : ''}`; },
+  },
+  {
+    id: 'transit', name: 'Transit vehicles', detail: 'GTFS-Realtime · 7 open agency feeds', url: '/api/transit', refreshMs: 15000,
+    attribution: { text: 'Agency GTFS-Realtime feeds (credits per vehicle)', href: 'https://gtfs.org/documentation/realtime/reference/' },
+    note: 'Live buses, trams, trains and ferries from agencies that publish open, keyless vehicle-position feeds: Boston, Austin, Minneapolis–St Paul, Helsinki, the Netherlands, Norway and South East Queensland. Only those regions are covered; everywhere else is simply not published, not empty. Each vehicle credits its agency.',
+    create: () => new TransitLayer(), describe: d => { const t = d as TransitData; const live = t.feeds.filter(f => f.ok).length; return `${t.vehicles.length.toLocaleString()} vehicles · ${live}/${t.feeds.length} feeds answering · ${utc(t.fetchedAt)}`; },
   },
   {
     id: 'fires', name: 'Active fires', detail: 'NASA FIRMS · VIIRS · your key', url: '/api/fires', refreshMs: 1800000,
