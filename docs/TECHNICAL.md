@@ -26,6 +26,8 @@ Renderer Node integration is disabled and context isolation is enabled. The sett
 | src/tornado.ts | Warned-area outlines and the illustrative funnel rendering |
 | server/earthquakes.mjs | USGS event feed normalisation and short cache |
 | server/satellites.mjs | CelesTrak element-set proxy, hours-long cache, TLE parsing |
+| server/fires.mjs | NASA FIRMS CSV parsing, per-cell merge across instruments, half-hour cache |
+| server/vessels.mjs | AISStream websocket, newest report per vessel, idle disconnect |
 | src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
 | scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
 | server/roads.mjs | Overpass road/place retrieval |
@@ -43,7 +45,7 @@ Cloud rendering combines data fields with procedural geometry/detail across view
 
 Selecting an NHC system renders procedural eyewall and rainband structure centred on the published storm position. The analyzed wind extent sizes those bands where extent polygons are available, otherwise advisory intensity does; the bands are an illustration of a real system's position and size, not observed cloud geometry. Terrain under a selected location is shaded by the regional cover field offset along the solar vector; the shading is a coarse regional approximation and is suppressed for synthetic studies, satellite view and storm rendering, where the field no longer describes what is drawn.
 
-Data layers under **More data** follow one contract (`src/layers/types.ts`): a scene group, `setData`, a per-frame `update` and `dispose`, registered in `src/layers/catalog.ts` with the endpoint, refresh interval, attribution and a plain statement of what is and is not measured. Static layers (cables, data centres, dams) are bundled snapshots in `public/data`, rebuilt by `scripts/ingest-datasets.mjs`; their licenses are in `public/data/LICENSES.md` and `THIRD-PARTY.md`. Cable routes are drawn about 2 km above sea level so they read from orbit; they are not terrain-clamped on land. Satellite positions are SGP4 predictions from element sets that may be hours old, not tracking. Earthquake events include automatic solutions that USGS may later revise.
+Data layers under **More data** follow one contract (`src/layers/types.ts`): a scene group, `setData`, a per-frame `update` and `dispose`, registered in `src/layers/catalog.ts` with the endpoint, refresh interval, attribution and a plain statement of what is and is not measured. Static layers (cables, data centres, dams) are bundled snapshots in `public/data`, rebuilt by `scripts/ingest-datasets.mjs`; their licenses are in `public/data/LICENSES.md` and `THIRD-PARTY.md`. Cable routes are drawn about 2 km above sea level so they read from orbit; they are not terrain-clamped on land. Satellite positions are SGP4 predictions from element sets that may be hours old, not tracking. Earthquake events include automatic solutions that USGS may later revise. Fire markers are 375 m thermal anomalies, not perimeters. Ship positions are self-reported AIS relayed by volunteer receivers, so coverage is coastal and receiver-dependent. Every marker layer answers hover and click through one inspector; glyph shape encodes category and the card states the record's provenance.
 
 Tornado warnings are the NWS warned polygons. The funnel drawn inside a warned area is an illustration at approximate true scale, placed at the polygon centroid: the NWS publishes warned areas, never funnel positions, tracks or dimensions. Funnels are hidden above 220 km. Coverage is United States only.
 
@@ -65,6 +67,8 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /tornadoes | Active NWS tornado warning polygons and their centroids |
 | /earthquakes?feed=day | USGS events, normalised and ordered by magnitude |
 | /satellites | CelesTrak element sets for the station, visual, weather and GPS groups |
+| /fires | VIIRS detections from the last day, merged per ~1 km cell (needs `FIRMS_MAP_KEY`) |
+| /vessels | Newest AIS report per vessel from the last 30 minutes (needs `AISSTREAM_API_KEY`) |
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
@@ -80,11 +84,13 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 - Tornado warnings: 45-second snapshots, request coalescing and 60-second failure backoff; expired and cancelled alerts are dropped. The client refreshes every minute.
 - Earthquakes: five-minute cache; on provider failure the last good feed is returned marked `stale`.
 - Satellites: element sets held for two hours and served stale on failure, per CelesTrak's request not to refetch on every load. Positions are propagated on the client with SGP4 every 200 ms.
+- Fires: three world pulls every 30 minutes on the recipient's key, served stale for two minutes after a failure.
+- Vessels: one websocket held while the layer is requested, closed three minutes after the last request; reports older than 30 minutes are dropped and at most 30,000 are served.
 - Point weather: fallback values are explicitly marked cached; inspect returned metadata and UI age.
 
 ## Configuration and privacy
 
-For source development, optional `.env.local` can define `FLIGHT_CONTACT`, `ESRI_API_KEY`, `PORT` and `OVERPASS_URL`. Never commit or distribute local environment files. `npm run start` serves the production bundle, normally on loopback port 5173.
+For source development, optional `.env.local` can define `FLIGHT_CONTACT`, `ESRI_API_KEY`, `FIRMS_MAP_KEY`, `AISSTREAM_API_KEY`, `PORT` and `OVERPASS_URL`. Never commit or distribute local environment files. `npm run start` serves the production bundle, normally on loopback port 5173.
 
 Desktop mode sets `WEATHER_DESKTOP=1`, skips `.env.local`, uses an ephemeral port and overrides inherited `FLIGHT_CONTACT` and `ESRI_API_KEY` with the user's saved settings. Settings are stored in `settings.json` under Electron's per-user application-data directory (`app.getPath('userData')`). The contact is not a secret API key: it identifies flight requests and is transmitted to ADSB.lol. It is stored as plain text locally. Each recipient supplies their own contact. The ArcGIS key is a real credential: with one set, imagery is requested from `ibasemaps-api.arcgis.com` and metered to that recipient's own ArcGIS Location Platform allowance (2 million tiles a month on the free tier); without one, the public `server.arcgisonline.com` endpoint is used, which Esri intends for personal use. The key is stored as plain text in settings.json and is never bundled. No centralized proxy or shared paid account is provisioned by this release.
 
@@ -122,6 +128,8 @@ Before shipping a new release: build and run unit tests; smoke-test the packaged
 - NOAA/NWS active alerts (tornado warnings): https://www.weather.gov/documentation/services-web-api
 - USGS Earthquake Hazards Program feeds: https://earthquake.usgs.gov/earthquakes/feed/
 - CelesTrak element sets: https://celestrak.org/
+- NASA FIRMS active fire data (recipient's own map key): https://firms.modaps.eosdis.nasa.gov/
+- AISStream AIS relay (recipient's own key; beta service without formal terms): https://aisstream.io/
 - TeleGeography Submarine Cable Map (CC BY-NC-SA 3.0, bundled): https://www.submarinecablemap.com/
 - OpenStreetMap data-centre and dam extracts (ODbL, compiled by Gods Eye View, MIT): https://github.com/halfpixel/gods-eye-view
 - NASA GIBS/MODIS satellite products: https://nasa-gibs.github.io/gibs-api-docs/

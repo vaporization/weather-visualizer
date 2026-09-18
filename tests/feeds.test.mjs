@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseFirmsCsv, mergeFires } from '../server/fires.mjs';
+import { ingestAis, vesselRows, aisTime } from '../server/vessels.mjs';
+test('FIRMS CSV parses VIIRS rows, keeps the strongest detection per cell and drops old or invalid ones', () => {
+  const now = Date.parse('2026-09-18T20:00:00Z');
+  const header = 'latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight';
+  const snpp = [header, '38.5012,-120.2011,340.1,0.4,0.4,2026-09-18,0930,N,VIIRS,h,2.0NRT,300.2,12.5,D', '38.5230,-120.2230,330.0,0.4,0.4,2026-09-18,0930,N,VIIRS,n,2.0NRT,295.0,8.0,D', '95,10,300,0.4,0.4,2026-09-18,0930,N,VIIRS,h,2.0NRT,290,5,D', '10,10,300,0.4,0.4,2026-09-10,0930,N,VIIRS,h,2.0NRT,290,5,N'].join('\n');
+  const noaa20 = [header, '38.4990,-120.1990,350.0,0.4,0.4,2026-09-18,1105,1,VIIRS,l,2.0NRT,300.0,40.0,N'].join('\n');
+  const a = parseFirmsCsv(snpp, 'VIIRS_SNPP_NRT'), b = parseFirmsCsv(noaa20, 'VIIRS_NOAA20_NRT');
+  assert.equal(a.length, 3); assert.equal(b.length, 1);
+  const merged = mergeFires([a, b], now);
+  assert.equal(merged.fires.length, 2, 'two cells: the shared one and the neighbour');
+  const [lat, lon, frp, confidence, hoursAgo, night, satellite] = merged.fires[0];
+  assert.deepEqual([lat, lon, frp, confidence, night, satellite], [38.499, -120.199, 40, 0, 1, 1], 'the 40 MW NOAA-20 detection wins the shared cell');
+  assert.ok(hoursAgo >= 8.9 && hoursAgo <= 9);
+  assert.throws(() => parseFirmsCsv('foo,bar\n1,2', 'x'));
+});
+test('AIS envelopes fold into one row per vessel with static data merged and stale ships dropped', () => {
+  const now = Date.parse('2026-09-18T20:00:00Z'), vessels = new Map(), statics = new Map();
+  const report = (mmsi, lat, lon, extra = {}, when = '2026-09-18 19:59:30.000 +0000 UTC') => ({ MessageType: 'PositionReport', MetaData: { MMSI: mmsi, ShipName: 'EVER GIVEN', latitude: lat, longitude: lon, time_utc: when }, Message: { PositionReport: { Cog: 91.5, Sog: 12.3, TrueHeading: 90, NavigationalStatus: 0, ...extra } } });
+  assert.equal(ingestAis(vessels, statics, report(353136000, 30.1, 32.5), now), true);
+  assert.equal(ingestAis(vessels, statics, { MessageType: 'ShipStaticData', MetaData: { MMSI: 353136000 }, Message: { ShipStaticData: { Name: 'EVER GIVEN', Type: 71, Destination: 'ROTTERDAM' } } }, now), false);
+  assert.equal(ingestAis(vessels, statics, report(123, 1, 1), now), false, 'MMSI must be 7-9 digits');
+  assert.equal(ingestAis(vessels, statics, report(211000001, 0, 0), now), false, '0,0 is a null fix');
+  assert.equal(ingestAis(vessels, statics, report(211000002, 55, 10, { TrueHeading: 511, Cog: 360, Sog: 102.3 }, '2026-09-18 19:50:00.000 +0000 UTC'), now), true);
+  const rows = vesselRows(vessels, now);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], ['353136000', 30.1, 32.5, 91.5, 12.3, 90, 'EVER GIVEN', 71, 30]);
+  assert.deepEqual(rows[1].slice(3, 6), [null, null, null], 'unavailable course, speed and heading are null, not sentinel values');
+  assert.equal(vesselRows(vessels, now + 3600000).length, 0);
+  assert.equal(aisTime('garbage', now), now);
+});

@@ -2,6 +2,8 @@ import { CableLayer, type CableData } from './cables';
 import { EarthquakeLayer, type QuakeData } from './earthquakes';
 import { SatelliteLayer, type SatelliteData } from './satellites';
 import { SiteLayer, type SiteData } from './sites';
+import { FireLayer, type FireData } from './fires';
+import { VesselLayer, type VesselData } from './vessels';
 import type { LayerSpec } from './types';
 const utc = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 export const layerCatalog: LayerSpec[] = [
@@ -15,13 +17,13 @@ export const layerCatalog: LayerSpec[] = [
     id: 'datacenters', name: 'Data centres', detail: 'OpenStreetMap telecom sites', url: '/data/datacenters.json', refreshMs: 0,
     attribution: { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
     note: 'Sites mapped in OpenStreetMap as data centres, drawn at their centroids. Coverage follows mapping effort, not the industry: an empty region means unmapped, not absent. ODbL.',
-    create: () => new SiteLayer(0x7fd1ff), describe: d => `${(d as SiteData).sites.length.toLocaleString()} mapped sites`,
+    create: () => new SiteLayer({ kind: 'Data centre (OpenStreetMap)', shape: 'square', color: 0x7fd1ff }), describe: d => `${(d as SiteData).sites.length.toLocaleString()} mapped sites`,
   },
   {
     id: 'dams', name: 'Dams & hydro plants', detail: 'OpenStreetMap power and water', url: '/data/dams.json', refreshMs: 0,
     attribution: { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
     note: 'Mapped dams; those tagged as power plants are drawn in amber. Rated output is shown only where mappers recorded it. Coverage follows mapping effort. ODbL.',
-    create: () => new SiteLayer(0x9ec9e8, s => s.hydro ? 0xffc44d : undefined), describe: d => { const s = (d as SiteData).sites; return `${s.length} dams · ${s.filter(x => x.hydro).length} hydro plants`; },
+    create: () => new SiteLayer({ kind: 'Dam (OpenStreetMap)', shape: 'diamond', color: 0x9ec9e8, accent: s => s.hydro ? { color: 0xffc44d, kind: 'Hydroelectric plant (OpenStreetMap)' } : undefined }), describe: d => { const s = (d as SiteData).sites; return `${s.length} dams · ${s.filter(x => x.hydro).length} hydro plants`; },
   },
   {
     id: 'earthquakes', name: 'Earthquakes', detail: 'USGS · past 24 hours', url: '/api/earthquakes', refreshMs: 300000,
@@ -34,5 +36,17 @@ export const layerCatalog: LayerSpec[] = [
     attribution: { text: 'CelesTrak', href: 'https://celestrak.org/' },
     note: 'Space stations, the brightest satellites, weather and GPS constellations, propagated on this machine from CelesTrak element sets. Positions are predictions from elements that can be hours old; not tracking data. Altitude is true to scale.',
     create: () => new SatelliteLayer(), describe: d => { const s = d as SatelliteData; return `${s.satellites.length} objects · elements ${utc(s.fetchedAt)}`; },
+  },
+  {
+    id: 'fires', name: 'Active fires', detail: 'NASA FIRMS · VIIRS · your key', url: '/api/fires', refreshMs: 1800000,
+    attribution: { text: 'NASA FIRMS', href: 'https://firms.modaps.eosdis.nasa.gov/' },
+    note: 'Thermal anomalies from the last day seen by three VIIRS instruments at 375 m, one marker per kilometre cell. A detection is a hot spot, not a fire perimeter; clouds hide fires, and gas flares and industry also register. Needs a free FIRMS map key in Settings.',
+    create: () => new FireLayer(), describe: d => { const f = d as FireData; return `${f.fires.length.toLocaleString()} detections · ${utc(f.fetchedAt)}`; },
+  },
+  {
+    id: 'vessels', name: 'Ships', detail: 'AIS via AISStream · your key', url: '/api/vessels', refreshMs: 15000,
+    attribution: { text: 'AISStream', href: 'https://aisstream.io/' },
+    note: 'Self-reported AIS positions relayed by volunteer receivers. Coverage is coastal and receiver-dependent: open ocean and quiet coasts are blank, not empty. Arrows point along the reported heading. Ships broadcast their own identity and class. Needs a free AISStream key in Settings.',
+    create: () => new VesselLayer(), describe: d => { const v = d as VesselData; return v.warming ? `Connected · collecting reports (${v.vessels.length.toLocaleString()} so far)` : `${v.vessels.length.toLocaleString()} ships in the last 30 min · ${utc(v.fetchedAt)}`; },
   },
 ];

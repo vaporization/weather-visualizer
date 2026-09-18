@@ -1,3 +1,3 @@
-const contact=document.getElementById('contact'),esriKey=document.getElementById('esri'),status=document.getElementById('status');
-window.settings.read().then(s=>{contact.value=s.flightContact;esriKey.value=s.esriKey;});
-document.getElementById('save').onclick=async()=>{try{status.textContent='Saving…';await window.settings.save({flightContact:contact.value,esriKey:esriKey.value});status.textContent='Saved.';}catch(e){status.textContent=e.message;}};
+const contact=document.getElementById('contact'),esriKey=document.getElementById('esri'),firmsKey=document.getElementById('firms'),aisKey=document.getElementById('ais'),status=document.getElementById('status');
+window.settings.read().then(s=>{contact.value=s.flightContact;esriKey.value=s.esriKey;firmsKey.value=s.firmsKey;aisKey.value=s.aisKey;});
+document.getElementById('save').onclick=async()=>{try{status.textContent='Saving…';await window.settings.save({flightContact:contact.value,esriKey:esriKey.value,firmsKey:firmsKey.value,aisKey:aisKey.value});status.textContent='Saved.';}catch(e){status.textContent=e.message;}};

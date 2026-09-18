@@ -31,8 +31,10 @@ export class CableLayer implements GlobeLayer {
     }
     this.lines.geometry.dispose();
     this.lines.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)).setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    this.landings.set(d.landings.map(l => ({ lat: l.lat, lon: l.lon, radius: CABLE_RADIUS })));
+    this.landings.set(d.landings.map(l => ({ lat: l.lat, lon: l.lon, radius: CABLE_RADIUS, info: { title: l.name, lines: ['Cable landing point', `${l.lat.toFixed(3)}°, ${l.lon.toFixed(3)}°`, d.attribution] } })));
   }
   update(context: LayerContext) { this.landings.points.visible = context.altitudeKm < 6000; }
+  resize(width: number, height: number) { this.landings.resize(width, height); }
+  pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) { return this.landings.pick(camera, x, y, width, height); }
   dispose() { this.lines.geometry.dispose(); (this.lines.material as THREE.Material).dispose(); this.landings.dispose(); }
 }

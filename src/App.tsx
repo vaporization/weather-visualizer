@@ -5,7 +5,7 @@ import { layerCatalog } from './layers/catalog';
 import type { StreetData, StreetOptions } from './StreetOverlay';
 import PanelChrome, { panelAction } from './PanelChrome';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship } from 'lucide-react';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
@@ -20,7 +20,7 @@ export default function App(){
   const [radarStatus,setRadarStatus]=useState('Loading NOAA radar observations…'),[radarOpacity,setRadarOpacity]=useState(75);
   const [flightsOn,setFlightsOn]=useState(false),[flightData,setFlightData]=useState<FlightData|null>(null),[flightStatus,setFlightStatus]=useState('');
   const [gamepadOn,setGamepadOn]=useState(()=>localStorage.getItem('atmo-gamepad')!=='off'),[gamepadStatus,setGamepadStatus]=useState('Connect a controller and press a button.');
-  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite};
+  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship};
   const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
   const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
   const loops=useRef(new Map<string,AbortController>());

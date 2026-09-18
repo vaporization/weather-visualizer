@@ -59,7 +59,8 @@ Nonstandard controllers may not map correctly. The application uses the browser 
 - **Coordinates:** geographic reference lines.
 - **Tropical systems:** published NHC storm information and wind extents where available. Selecting a system also draws eyewall and rainband structure at its published position, sized by the analyzed wind extent where one exists and by advisory intensity otherwise. That structure is an illustration of a real storm's location and size, not observed cloud imagery. NHC coverage is regional, not a complete global cyclone feed. Any demonstration scenario is illustrative.
 - **Tornado warnings:** active NWS warned polygons in red, refreshed about every minute. The funnel drawn inside a warned area is an illustration at approximate true scale, anchored at the polygon centre — the NWS publishes warned *areas*, never funnel positions, tracks or sizes, so its exact placement, width and shape are not real. Zoom below 220 km to see it. United States coverage only; an empty list means no warnings are active, not that no severe weather exists.
-- **More data:** expand this section of the Atmosphere panel for submarine cables and landing points (TeleGeography snapshot), mapped data centres and dams with hydro plants (OpenStreetMap), earthquakes from the last 24 hours (USGS, sized by magnitude, coloured by age) and satellites (CelesTrak element sets propagated on your machine: stations, brightest objects, weather and GPS). Each layer states its source, what is measured and where coverage ends. Cables are drawn about 2 km above sea level so they can be seen from orbit.
+- **More data:** expand this section of the Atmosphere panel for submarine cables and landing points (TeleGeography snapshot), mapped data centres and dams with hydro plants (OpenStreetMap), earthquakes from the last 24 hours (USGS, sized by magnitude, coloured by age), satellites (CelesTrak element sets propagated on your machine: stations, brightest objects, weather and GPS), active fires (NASA FIRMS VIIRS detections, needs your free map key) and ships (AIS via AISStream, needs your free key; arrows point along the reported heading). Each layer states its source, what is measured and where coverage ends. Cables are drawn about 2 km above sea level so they can be seen from orbit.
+- **Inspecting markers:** every marker has a distinct glyph (squares for data centres, diamonds for dams, rings for earthquakes, arrows for ships and aircraft, dots for satellites and fires). Hover any marker to name it; click to pin a card with its details; press Escape or the × to dismiss. Clicking a marker does not change the selected location.
 
 ### Radar coverage and meaning
 
@@ -78,6 +79,10 @@ After selecting a place, expand **Roads & places** in View controls. Toggle road
 ## Surface imagery key
 
 Surface imagery comes from Esri World Imagery. Open the desktop **File → Settings** menu and paste an API key from a free ArcGIS Location Platform account (2 million tiles a month) so imagery is metered to your own allowance. Without a key the public endpoint is used, which Esri intends for personal use only; heavy use may be throttled.
+
+## Fire and ship keys
+
+Active fires need a free NASA FIRMS map key and ships need a free AISStream key; both go in the desktop **File → Settings** menu and are metered to your own accounts. While the ship layer is on, this computer holds one live connection to AISStream and keeps the last 30 minutes of reports; nothing is stored between sessions.
 
 ## Live aircraft
 

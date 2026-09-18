@@ -16,6 +16,7 @@ import { cloudTexture, globalTexture, type GlobalWeather, type MapMode } from '.
 import { TornadoLayer, type TornadoData } from './tornado';
 import { layerCatalog } from './layers/catalog';
 import type { GlobeLayer } from './layers/types';
+import type { Info } from './layers/points';
 
 export type GlobeAPI = { zoom: (factor: number) => void; reset: () => void; focus: () => void; streets: () => void };
 export type RenderStats = { fps: number; tiltPercent: number; altitudeKm: number; gpu: string; terrain: string; satellite: string };
@@ -157,7 +158,39 @@ export default function GlobeScene(props: Props) {
         latest.current.onSelect(location);
       }
     };
-    const up = (e: PointerEvent) => { pointers.delete(e.pointerId); touches.delete(e.pointerId); pinchDistance = 0; if (moved || e.button !== 0) return; const box = renderer.domElement.getBoundingClientRect(); select((e.clientX - box.left) / box.width * 2 - 1, -(e.clientY - box.top) / box.height * 2 + 1); };
+    // One inspector for every marker layer: hover names it, a click pins the card until dismissed.
+    const tip=document.createElement('div');tip.className='inspect-tip';tip.style.display='none';el.appendChild(tip);
+    const card=document.createElement('div');card.className='inspect-card';card.style.display='none';el.appendChild(card);
+    const fill=(node:HTMLElement,info:Info,pinned:boolean)=>{
+      node.replaceChildren();
+      const title=document.createElement('strong');title.textContent=info.title;node.append(title);
+      if(pinned){const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close');close.textContent='×';close.onclick=()=>{card.style.display='none';};node.append(close);}
+      for(const line of info.lines){const p=document.createElement('span');p.textContent=line;node.append(p);}
+      if(pinned&&info.image){const img=document.createElement('img');img.alt=info.title;img.src=info.image;img.loading='lazy';node.append(img);}
+    };
+    const place=(node:HTMLElement,x:number,y:number,width:number)=>{const b=canvas.getBoundingClientRect();node.style.left=`${Math.min(b.width-width-8,Math.max(8,x+14))}px`;node.style.top=`${Math.max(8,Math.min(b.height-40,y-16))}px`;};
+    const pickAt=(clientX:number,clientY:number):Info|null=>{
+      const b=canvas.getBoundingClientRect(),x=clientX-b.left,y=clientY-b.top;
+      if(latest.current.flightData){const f=flights.pick(camera,x/b.width*2-1,-y/b.height*2+1,b.width,b.height,Date.now());if(f)return {title:`${f.callsign} · ${f.type}`,lines:[`${f.category} aircraft`,`${(f.altitudeKm*1000).toFixed(0)} m · ${Math.round(f.speedKms*3600)} km/h · heading ${Math.round(f.heading)}°`,'ADSB.lol · estimated between 15-second updates']};}
+      for(const layer of dataLayers.values()){const hit=layer.pick?.(camera,x,y,b.width,b.height);if(hit)return hit.info;}
+      return null;
+    };
+    let hoverTick=0;
+    const hover=(e:PointerEvent)=>{
+      if(e.buttons){tip.style.display='none';return;}
+      if(performance.now()-hoverTick<80)return;hoverTick=performance.now();
+      const info=pickAt(e.clientX,e.clientY);tip.style.display=info?'flex':'none';canvas.style.cursor=info?'pointer':'';
+      if(info){fill(tip,info,false);const b=canvas.getBoundingClientRect();place(tip,e.clientX-b.left,e.clientY-b.top,300);}
+    };
+    const pin=(clientX:number,clientY:number)=>{
+      const info=pickAt(clientX,clientY);if(!info)return false;
+      fill(card,info,true);card.style.display='flex';const b=canvas.getBoundingClientRect();place(card,clientX-b.left,clientY-b.top,340);tip.style.display='none';return true;
+    };
+    const clickAt=(clientX:number,clientY:number)=>{if(pin(clientX,clientY))return;card.style.display='none';const b=canvas.getBoundingClientRect();select((clientX-b.left)/b.width*2-1,-(clientY-b.top)/b.height*2+1);};
+    const dismiss=(e:KeyboardEvent)=>{if(e.key==='Escape')card.style.display='none';};
+    window.addEventListener('keydown',dismiss);
+    renderer.domElement.addEventListener('pointermove',hover);renderer.domElement.addEventListener('pointerleave',()=>{tip.style.display='none';});
+    const up = (e: PointerEvent) => { pointers.delete(e.pointerId); touches.delete(e.pointerId); pinchDistance = 0; if (moved || e.button !== 0) return; clickAt(e.clientX, e.clientY); };
     const cancel = (e: PointerEvent) => { pointers.delete(e.pointerId); touches.delete(e.pointerId); pinchDistance = 0; moved = true; };
     const heldKeys=new Set<string>();
     const moveNavigation=(x:number,y:number,seconds:number)=>{
@@ -183,9 +216,7 @@ export default function GlobeScene(props: Props) {
     window.addEventListener('keydown',key);window.addEventListener('keyup',keyUp);window.addEventListener('blur',clearKeys);document.addEventListener('visibilitychange',clearKeys);
     const canvas = renderer.domElement;
     canvas.addEventListener('pointerdown',()=>canvas.focus({preventScroll:true}),true);
-    const flightTip=document.createElement('div');flightTip.className='flight-tooltip';flightTip.style.display='none';el.appendChild(flightTip);let hoverTick=0;
-    const flightHover=(e:PointerEvent)=>{if(e.buttons||!latest.current.flightData){flightTip.style.display='none';return;}if(performance.now()-hoverTick<100)return;hoverTick=performance.now();const b=canvas.getBoundingClientRect();const f=flights.pick(camera,(e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1,b.width,b.height,Date.now());flightTip.style.display=f?'block':'none';if(f){flightTip.textContent=`${f.callsign} · ${f.type} · ${(f.altitudeKm*1000).toFixed(0)} m · ${Math.round(f.speedKms*3600)} km/h · estimated position`;flightTip.style.left=`${Math.min(b.width-300,Math.max(8,e.clientX-b.left+12))}px`;flightTip.style.top=`${Math.max(8,e.clientY-b.top-35)}px`;}};
-    canvas.addEventListener('pointermove',flightHover);canvas.addEventListener('pointerleave',()=>{flightTip.style.display='none';});
+
     const wheel = (e: WheelEvent) => { e.preventDefault(); zoom(Math.exp(THREE.MathUtils.clamp(e.deltaY * (e.deltaMode === 1 ? 16 : 1), -160, 160) * .004)); };
     let dragPointer: number | null = null, dragX=0, dragY=0, dragging=false;
     const dragDown=(e:PointerEvent)=>{
@@ -212,7 +243,7 @@ export default function GlobeScene(props: Props) {
       if(e.pointerId!==dragPointer)return;
       e.preventDefault();e.stopImmediatePropagation();dragPointer=null;
       if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);
-      if(!dragging&&e.type==='pointerup'){const b=canvas.getBoundingClientRect();select((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);}
+      if(!dragging&&e.type==='pointerup')clickAt(e.clientX,e.clientY);
     };
     canvas.addEventListener('pointerdown',dragDown,true);canvas.addEventListener('pointermove',dragMove,true);canvas.addEventListener('pointerup',dragEnd,true);canvas.addEventListener('pointercancel',dragEnd,true);
     let lookPointer: number | null = null, lookX = 0, lookY = 0, lookTilt = 0;
@@ -248,7 +279,7 @@ export default function GlobeScene(props: Props) {
     canvas.addEventListener('auxclick', auxClick);
     canvas.addEventListener('wheel', wheel, { passive: false });
     canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', cancel);
-    const resize = () => { camera.aspect = el.clientWidth / el.clientHeight; camera.clearViewOffset(); camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth, el.clientHeight); };
+    const resize = () => { camera.aspect = el.clientWidth / el.clientHeight; camera.clearViewOffset(); camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth, el.clientHeight); for (const l of dataLayers.values()) l.resize?.(el.clientWidth, el.clientHeight); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
     let frame = 0, previous = performance.now(), statsTime = previous, frames = 0, terrainTick = previous;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -359,7 +390,7 @@ export default function GlobeScene(props: Props) {
       });
       if (now - statsTime > 1250) { latest.current.onStats({ fps: Math.round(frames * 1000 / (now - statsTime)), tiltPercent: actualTilt, altitudeKm: altitude, gpu, terrain: terrainStatus, satellite: satelliteStatus }); frames = 0; statsTime = now; }
     }; frame = requestAnimationFrame(animate);
-    return () => { alive = false; window.removeEventListener('keydown',key);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',clearKeys);document.removeEventListener('visibilitychange',clearKeys); satelliteController.abort(); cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); flights.dispose(); scene.remove(flights.group); terrain.dispose(); streets.dispose(); scene.remove(streets.mesh); terrainDepth.dispose(); shell.dispose(); particles.dispose(); tornadoes.dispose(); dataLayers.forEach(l => { scene.remove(l.group); l.dispose(); }); dataLayers.clear(); scene.remove(shell.mesh, terrain.group, tornadoes.group, particles.rain, particles.snow, particles.wind); dispose(scene); map.dispose(); sunSprite.material.map?.dispose(); renderer.dispose(); canvas.removeEventListener('wheel', wheel); flightTip.remove(); canvas.remove(); state.current = null; };
+    return () => { alive = false; window.removeEventListener('keydown',key);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',clearKeys);document.removeEventListener('visibilitychange',clearKeys); satelliteController.abort(); cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); flights.dispose(); scene.remove(flights.group); terrain.dispose(); streets.dispose(); scene.remove(streets.mesh); terrainDepth.dispose(); shell.dispose(); particles.dispose(); tornadoes.dispose(); dataLayers.forEach(l => { scene.remove(l.group); l.dispose(); }); dataLayers.clear(); scene.remove(shell.mesh, terrain.group, tornadoes.group, particles.rain, particles.snow, particles.wind); dispose(scene); map.dispose(); sunSprite.material.map?.dispose(); renderer.dispose(); canvas.removeEventListener('wheel', wheel); tip.remove(); card.remove(); window.removeEventListener('keydown',dismiss); canvas.remove(); state.current = null; };
   }, []);
   useEffect(() => {
     const s = state.current; if (!s) return;
@@ -402,7 +433,7 @@ export default function GlobeScene(props: Props) {
     const s = state.current; if (!s) return;
     for (const spec of layerCatalog) {
       const data = props.extraLayers[spec.id], existing = s.dataLayers.get(spec.id);
-      if (data != null) { const layer = existing ?? spec.create(); if (!existing) { s.dataLayers.set(spec.id, layer); s.scene.add(layer.group); } layer.setData(data); }
+      if (data != null) { const layer = existing ?? spec.create(); if (!existing) { s.dataLayers.set(spec.id, layer); s.scene.add(layer.group); layer.resize?.(s.renderer.domElement.clientWidth, s.renderer.domElement.clientHeight); } layer.setData(data); }
       else if (existing) { s.scene.remove(existing.group); existing.dispose(); s.dataLayers.delete(spec.id); }
     }
   }, [props.extraLayers]);
