@@ -43,7 +43,7 @@ export function registerTraffic(app) {
     if (!key) return res.status(503).json({ error: `Add a free TomTom API key via ${keyHint('TOMTOM_API_KEY')} to load traffic flow.` });
     let p; try { p = coordinates(req.query); } catch (e) { return res.status(400).json({ error: e.message }); }
     if (day !== today()) { day = today(); used = 0; }
-    const wanted = tilesAround(p.lat, p.lon), segments = [], now = Date.now(); let fetched = 0, failed = 0, budgeted = false, rejected = false;
+    const wanted = tilesAround(p.lat, p.lon), segments = [], now = Date.now(); let fetched = 0, failed = 0, budgeted = false, refused = 0;
     let next = 0;
     await Promise.all(Array.from({ length: 5 }, async () => {
       while (next < wanted.length) {
@@ -53,7 +53,7 @@ export function registerTraffic(app) {
         try {
           used++; fetched++;
           const r = await fetch(`https://api.tomtom.com/traffic/map/4/tile/flow/relative/${id}.pbf?key=${encodeURIComponent(key)}`, { headers: { 'User-Agent': 'AtmoWeatherGlobe/0.2' }, signal: AbortSignal.timeout(12000) });
-          if (r.status === 403 || r.status === 401) { rejected = true; throw new Error('key rejected'); }
+          if (r.status === 401 || r.status === 403 || r.status === 429) { refused = r.status; throw new Error(`refused ${r.status}`); }
           if (!r.ok) throw new Error(`tile ${r.status}`);
           const decoded = decodeFlow(new Uint8Array(await r.arrayBuffer()), t.z, t.x, t.y);
           tiles.set(id, { at: now, segments: decoded }); segments.push(...decoded);
@@ -61,7 +61,9 @@ export function registerTraffic(app) {
         } catch { failed++; if (hit) segments.push(...hit.segments); }
       }
     }));
-    if (rejected) return res.status(502).json({ error: `TomTom rejected the API key. Check ${keyHint('TOMTOM_API_KEY')}.` });
+    // TomTom answers an unknown key, a key without the Traffic products and a spent daily allowance alike, so say so.
+    if (refused === 429) return res.status(502).json({ error: 'TomTom is rate-limiting this key; traffic resumes when the allowance resets.' });
+    if (refused) return res.status(502).json({ error: `TomTom refused the key (HTTP ${refused}): it is mistyped, lacks the Traffic API products, or its daily allowance is spent. Check ${keyHint('TOMTOM_API_KEY')}.` });
     if (!segments.length && failed === wanted.length) return res.status(502).json({ error: 'TomTom traffic flow is unavailable. No congestion is being shown.' });
     res.set('Cache-Control', 'no-store').json({ fetchedAt: new Date(now).toISOString(), source: 'TomTom Traffic Flow', center: p, zoom: FLOW_ZOOM, tiles: wanted.length, fetched, failed, budget: { used, cap: DAILY_CAP, exhausted: budgeted }, segments: segments.slice(0, 40000) });
   });

@@ -36,6 +36,8 @@ registerSettings(app);
 registerGlobalWeather(app);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 registerAtmosphereRoutes(app);
+// The guides ship with the app so the key-entry panel and the desktop Help menu can open them.
+app.use('/docs', express.static(path.join(root, 'docs'), { extensions: ['html'] }));
 const pointWeather = createPointWeather();
 app.get('/api/weather', async (req, res) => {
   try {

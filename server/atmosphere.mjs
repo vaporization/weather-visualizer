@@ -67,14 +67,32 @@ export function registerAtmosphereRoutes(app) {
       res.json({ source: 'NOAA Aviation Weather Center', stations: normalizeMetars(data, p) });
     } catch { res.status(502).json({ error: 'Airport observations unavailable. Model data remains available.' }); }
   });
+  let keyRefusedUntil = 0;
+  const esriError = bytes => { try { const e = JSON.parse(new TextDecoder().decode(bytes.subarray(0, 400))).error; return `${e.code} ${e.message}`.trim(); } catch { return 'non-image response'; } };
   app.get('/api/tiles/:kind/:z/:x/:y', async (req, res) => {
     const { kind } = req.params; const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
     if (!['imagery', 'elevation'].includes(kind) || ![z, x, y].every(Number.isInteger) || z < 0 || z > (kind === 'imagery' ? 19 : 14) || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) return res.status(400).json({ error: 'Invalid tile' });
     try {
       // A recipient's own ArcGIS key meters imagery to their free allowance; without one the public endpoint serves personal use.
-      const key = process.env.ESRI_API_KEY;
-      const url = kind === 'imagery' ? (key ? `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}?token=${encodeURIComponent(key)}` : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`) : `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
-      res.set('Cache-Control', 'public, max-age=86400').type(kind === 'imagery' ? 'image/jpeg' : 'image/png').send(Buffer.from(await cachedFetch(url, true)));
+      // A key Esri refuses (expired, revoked, missing the basemap privilege) falls back to the public endpoint for ten minutes at a time.
+      const key = process.env.ESRI_API_KEY, keyed = !!key && Date.now() > keyRefusedUntil;
+      const publicUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+      const elevationUrl = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+      let bytes;
+      if (kind !== 'imagery') bytes = await cachedFetch(elevationUrl, true);
+      else if (!keyed) bytes = await cachedFetch(publicUrl, true);
+      else {
+        // Esri answers a refused token either with an HTTP error or with a 200 whose body is a JSON error instead of a JPEG.
+        let refusal = '';
+        try { bytes = await cachedFetch(`https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}?token=${encodeURIComponent(key)}`, true); if (bytes[0] !== 0xff || bytes[1] !== 0xd8) refusal = esriError(bytes); }
+        catch (e) { if (!/ 4(0[13]|98|99)$/.test(e.message)) throw e; refusal = e.message.slice(-3); }
+        if (refusal) {
+          keyRefusedUntil = Date.now() + 600000;
+          console.warn(`Esri refused the ArcGIS API key (${refusal}); serving public imagery for ten minutes. Check the key's expiry and basemap privileges.`);
+          bytes = await cachedFetch(publicUrl, true);
+        }
+      }
+      res.set('Cache-Control', 'public, max-age=86400').type(kind === 'imagery' ? 'image/jpeg' : 'image/png').send(Buffer.from(bytes));
     } catch { res.status(502).json({ error: 'Terrain tile unavailable' }); }
   });
   app.get('/api/satellite-palette', async (_req, res) => {

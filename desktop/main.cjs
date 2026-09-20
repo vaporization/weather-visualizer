@@ -48,7 +48,7 @@ app.whenReady().then(async()=>{
  Menu.setApplicationMenu(Menu.buildFromTemplate([
   {label:'File',submenu:[{label:'Settings…',click:openSettings},{role:'quit'}]},
   {label:'View',submenu:[{role:'reload'},{role:'togglefullscreen'}]},
-  {label:'Help',submenu:[{label:'Feature guide',click:()=>openGuide('USER-GUIDE.html')},{label:'Technical reference',click:()=>openGuide('TECHNICAL.html')}]}
+  {label:'Help',submenu:[{label:'Feature guide',click:()=>openGuide('USER-GUIDE.html')},{label:'Technical reference',click:()=>openGuide('TECHNICAL.html')},{label:'Getting provider keys',click:()=>openGuide('API-KEYS.html')}]}
  ]));
  mainWindow=secureWindow();guard(mainWindow);
  try {await mainWindow.loadURL(await startBackend());} catch(e){dialog.showErrorBox('Unable to start',e.message);app.quit();}

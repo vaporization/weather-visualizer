@@ -6,6 +6,7 @@ A GPU-rendered weather globe with terrain, forecast layers, NOAA radar, local co
 
 - [Feature list and user guide](docs/USER-GUIDE.md): installation, controls, layers and troubleshooting.
 - [Technical reference](docs/TECHNICAL.md): architecture, endpoints, data interpretation, configuration and releases.
+- [Provider keys](docs/API-KEYS.md): step-by-step acquisition of the free ArcGIS, NASA FIRMS, AISStream and TomTom keys, what each unlocks and costs, and where to enter them.
 - Standalone HTML copies are in `docs/` and available in the desktop Help menu.
 
 ## Develop and package

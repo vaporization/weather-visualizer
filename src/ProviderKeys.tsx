@@ -44,7 +44,7 @@ export default function ProviderKeys({ onSaved }: { onSaved: () => void }) {
     {!settings && !message && <small role="status"><LoaderCircle size={12} className="spin"/> Checking which keys are set…</small>}
     {settings?.desktop && <small>The desktop app keeps keys under File → Settings. Enter them there and they apply to every layer.</small>}
     {settings && !settings.desktop && <>
-      <small>Keys are held by the local server only and saved to <code>.env.local</code> in the project folder. They are never sent anywhere but the provider they belong to, and never shown here in full. A blank field keeps what is already set.</small>
+      <small>Keys are held by the local server only and saved to <code>.env.local</code> in the project folder. They are never sent anywhere but the provider they belong to, and never shown here in full. A blank field keeps what is already set. <a href="/docs/API-KEYS.html" target="_blank" rel="noreferrer">How to get each key</a>.</small>
       {Object.entries(settings.keys).map(([name, k]) => { const g = guidance[name]; return <label key={name} className="key-field">
         <span>{k.label}<small>{g?.about}{g && <> · <a href={g.href} target="_blank" rel="noreferrer">{g.site}</a></>}</small></span>
         <span className="key-input"><input aria-label={k.label} type={name === 'FLIGHT_CONTACT' ? 'text' : 'password'} autoComplete="off" spellCheck={false} placeholder={k.set ? `Set (${k.hint})` : g?.placeholder || 'Not set'} value={draft[name] ?? ''} onChange={e => setDraft(d => ({ ...d, [name]: e.target.value }))}/>{k.set && <button type="button" aria-label={`Clear ${k.label}`} disabled={busy} onClick={() => { void clear(name); }}>Clear</button>}</span>
