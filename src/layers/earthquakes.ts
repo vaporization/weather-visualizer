@@ -18,7 +18,7 @@ export class EarthquakeLayer implements GlobeLayer {
     this.cloud.set(this.quakes.map(q => {
       const age = THREE.MathUtils.clamp((context.now - Date.parse(q.time)) / 86400000, 0, 1);
       const when = new Date(q.time);
-      return { lat: q.lat, lon: q.lon, size: 4 + Math.max(0, q.mag) * 2.4, color: tint.copy(fresh).lerp(old, age).getHex(), info: { title: `M${q.mag.toFixed(1)} · ${q.place}`, lines: [`Depth ${q.depthKm.toFixed(0)} km`, `${when.toISOString().replace('T', ' ').slice(0, 16)} UTC · ${Math.round((context.now - when.getTime()) / 3600000)} h ago`, 'USGS event; automatic solutions may be revised'] } };
+      return { key: q.id, lat: q.lat, lon: q.lon, size: 4 + Math.max(0, q.mag) * 2.4, color: tint.copy(fresh).lerp(old, age).getHex(), info: { title: `M${q.mag.toFixed(1)} · ${q.place}`, lines: [`Depth ${q.depthKm.toFixed(0)} km`, `${when.toISOString().replace('T', ' ').slice(0, 16)} UTC · ${Math.round((context.now - when.getTime()) / 3600000)} h ago`, 'USGS event; automatic solutions may be revised'] } };
     }));
   }
   resize(width: number, height: number) { this.cloud.resize(width, height); }

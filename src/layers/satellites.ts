@@ -33,7 +33,7 @@ export class SatelliteLayer implements GlobeLayer {
       if (!Number.isFinite(r) || r < EARTH_KM) continue;
       // ECEF (x toward 0°E, z toward the pole) into the globe frame used by globePoint.
       const lat = Math.asin(ecf.z / r) * 180 / Math.PI, lon = Math.atan2(ecf.y, ecf.x) * 180 / Math.PI;
-      markers.push({ lat, lon, radius: r / EARTH_KM, color: GROUP_COLORS[group] ?? 0xffffff, size: group === 'stations' ? 7 : 4, info: { title: name, lines: [`${GROUP_LABELS[group] ?? group} · altitude ${Math.round(r - EARTH_KM).toLocaleString()} km`, `${lat.toFixed(2)}°, ${lon.toFixed(2)}° (sub-satellite point)`, 'SGP4 prediction from CelesTrak elements'] } });
+      markers.push({ key: name, lat, lon, radius: r / EARTH_KM, color: GROUP_COLORS[group] ?? 0xffffff, size: group === 'stations' ? 7 : 4, info: { title: name, lines: [`${GROUP_LABELS[group] ?? group} · altitude ${Math.round(r - EARTH_KM).toLocaleString()} km`, `${lat.toFixed(2)}°, ${lon.toFixed(2)}° (sub-satellite point)`, 'SGP4 prediction from CelesTrak elements'] } });
     }
     this.cloud.set(markers);
   }

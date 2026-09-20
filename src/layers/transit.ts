@@ -14,7 +14,7 @@ export class TransitLayer implements GlobeLayer {
     this.cloud.set((d?.vehicles ?? []).map(row => {
       const [feedId, label, lat, lon, bearing, speed, route, ageS] = row as [string, string, number, number, number | null, number | null, string, number];
       const feed = feeds.get(feedId);
-      return { lat, lon, heading: bearing ?? 0, shape: bearing == null ? 'circle' : 'arrow', size: bearing == null ? 5 : 8, color: FEED_COLORS[feedId] ?? 0xffffff, info: { title: `${feed?.name ?? feedId}${route ? ` · route ${route}` : ''}`, lines: [`${feed?.region ?? ''}${label ? ` · vehicle ${label}` : ''}`, `${speed != null ? `${speed} km/h · ` : ''}${bearing != null ? `${bearing}° · ` : ''}reported ${ageS < 90 ? `${ageS} s` : `${Math.round(ageS / 60)} min`} ago`, `GTFS-Realtime · ${feed?.attribution ?? ''}`].filter(Boolean) } } as const;
+      return { key: `${feedId}/${label || `${lat},${lon}`}`, lat, lon, heading: bearing ?? 0, shape: bearing == null ? 'circle' : 'arrow', size: bearing == null ? 5 : 8, color: FEED_COLORS[feedId] ?? 0xffffff, info: { title: `${feed?.name ?? feedId}${route ? ` · route ${route}` : ''}`, lines: [`${feed?.region ?? ''}${label ? ` · vehicle ${label}` : ''}`, `${speed != null ? `${speed} km/h · ` : ''}${bearing != null ? `${bearing}° · ` : ''}reported ${ageS < 90 ? `${ageS} s` : `${Math.round(ageS / 60)} min`} ago`, `GTFS-Realtime · ${feed?.attribution ?? ''}`].filter(Boolean) } } as const;
     }));
   }
   update(_context: LayerContext) {}

@@ -24,7 +24,7 @@ export class VesselLayer implements GlobeLayer {
     this.cloud.set((d?.vessels ?? []).map(row => {
       const [mmsi, lat, lon, cog, sog, heading, name, type, ageS] = row as [string, number, number, number | null, number | null, number | null, string, number, number];
       const cls = vesselClass(type), course = heading ?? cog;
-      return { lat, lon, heading: course ?? 0, shape: course == null ? 'circle' : 'arrow', color: cls.color, size: course == null ? 5 : 9, info: { title: name || `MMSI ${mmsi}`, lines: [`${cls.label}${sog != null ? ` · ${sog.toFixed(1)} kn` : ''}${course != null ? ` · ${Math.round(course)}°` : ''}`, `MMSI ${mmsi} · reported ${ageS < 90 ? `${ageS} s` : `${Math.round(ageS / 60)} min`} ago`, 'AIS via AISStream · self-reported position'] } } as const;
+      return { key: mmsi, lat, lon, heading: course ?? 0, shape: course == null ? 'circle' : 'arrow', color: cls.color, size: course == null ? 5 : 9, info: { title: name || `MMSI ${mmsi}`, lines: [`${cls.label}${sog != null ? ` · ${sog.toFixed(1)} kn` : ''}${course != null ? ` · ${Math.round(course)}°` : ''}`, `MMSI ${mmsi} · reported ${ageS < 90 ? `${ageS} s` : `${Math.round(ageS / 60)} min`} ago`, 'AIS via AISStream · self-reported position'] } } as const;
     }));
   }
   update(_context: LayerContext) {}

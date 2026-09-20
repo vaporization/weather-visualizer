@@ -2,8 +2,11 @@ import * as THREE from 'three';
 import { globePoint } from '../weatherShell';
 export type Shape = 'circle' | 'ring' | 'diamond' | 'square' | 'arrow';
 export type Info = { title: string; lines: string[]; image?: string };
-export type Marker = { lat: number; lon: number; radius?: number; size?: number; color?: THREE.ColorRepresentation; shape?: Shape; heading?: number; info?: Info };
-export type Pick = { info: Info; x: number; y: number };
+export type Marker = { lat: number; lon: number; radius?: number; size?: number; color?: THREE.ColorRepresentation; shape?: Shape; heading?: number; info?: Info; key?: string };
+// An anchor re-reads the record it was picked from, so a pinned card follows a ship's next report
+// or a satellite's propagated position; it returns null once the record is gone.
+export type Anchor = () => THREE.Vector3 | null;
+export type Pick = { info: Info; x: number; y: number; anchor: Anchor };
 const SHAPES: Record<Shape, number> = { circle: 0, ring: 1, diamond: 2, square: 3, arrow: 4 };
 const projected = new THREE.Vector3();
 // Screen-sized markers on the globe. Shape and colour tell categories apart at a glance; an arrow
@@ -12,6 +15,7 @@ export class PointCloud {
   readonly points: THREE.Points;
   private capacity = 0;
   private markers: Marker[] = [];
+  private byKey = new Map<string, Marker>();
   private material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: { opacity: { value: .95 }, viewport: { value: new THREE.Vector2(1, 1) } },
@@ -49,6 +53,7 @@ export class PointCloud {
   }
   set(markers: Marker[]) {
     this.markers = markers;
+    this.byKey.clear(); for (const m of markers) if (m.key) this.byKey.set(m.key, m);
     const n = markers.length, geometry = this.points.geometry;
     if (n > this.capacity || n < this.capacity / 2) {
       this.capacity = Math.max(64, n);
@@ -88,7 +93,11 @@ export class PointCloud {
       if (projected.z > 1) continue;
       const sx = (projected.x + 1) * width / 2, sy = (1 - projected.y) * height / 2;
       const distance = Math.hypot(sx - x, sy - y), reach = (m.size ?? this.defaultSize) / 2 + 6;
-      if (distance < reach && distance < bestDistance) { bestDistance = distance; best = { info: m.info, x: sx, y: sy }; }
+      if (distance < reach && distance < bestDistance) {
+        bestDistance = distance;
+        const key = m.key, fixed = world.clone();
+        best = { info: m.info, x: sx, y: sy, anchor: key ? () => { const live = this.byKey.get(key); return live ? globePoint(live.lat, live.lon, live.radius ?? 1.0002) : null; } : () => fixed };
+      }
     }
     return best;
   }

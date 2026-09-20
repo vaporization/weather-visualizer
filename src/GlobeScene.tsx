@@ -16,7 +16,8 @@ import { cloudTexture, globalTexture, type GlobalWeather, type MapMode } from '.
 import { TornadoLayer, type TornadoData } from './tornado';
 import { layerCatalog } from './layers/catalog';
 import type { GlobeLayer } from './layers/types';
-import type { Info } from './layers/points';
+import type { Anchor, Info } from './layers/points';
+import { flightPosition } from './flights';
 
 export type GlobeAPI = { zoom: (factor: number) => void; reset: () => void; focus: () => void; streets: () => void };
 export type RenderStats = { fps: number; tiltPercent: number; altitudeKm: number; gpu: string; terrain: string; satellite: string };
@@ -164,30 +165,49 @@ export default function GlobeScene(props: Props) {
     const fill=(node:HTMLElement,info:Info,pinned:boolean)=>{
       node.replaceChildren();
       const title=document.createElement('strong');title.textContent=info.title;node.append(title);
-      if(pinned){const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close');close.textContent='×';close.onclick=()=>{card.style.display='none';};node.append(close);}
+      if(pinned){const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close');close.textContent='×';close.onclick=()=>unpin();node.append(close);}
       for(const line of info.lines){const p=document.createElement('span');p.textContent=line;node.append(p);}
       if(pinned&&info.image){const img=document.createElement('img');img.alt=`Current still from ${info.title}`;img.src=`${info.image}${info.image.includes('?')?'&':'?'}t=${Date.now()}`;img.onerror=()=>{const gone=document.createElement('span');gone.textContent='Frame unavailable right now.';img.replaceWith(gone);};node.append(img);}
     };
     const place=(node:HTMLElement,x:number,y:number,width:number)=>{const b=canvas.getBoundingClientRect();node.style.left=`${Math.min(b.width-width-8,Math.max(8,x+14))}px`;node.style.top=`${Math.max(8,Math.min(b.height-40,y-16))}px`;};
-    const pickAt=(clientX:number,clientY:number):Info|null=>{
+    const pickAt=(clientX:number,clientY:number):{info:Info;anchor:Anchor}|null=>{
       const b=canvas.getBoundingClientRect(),x=clientX-b.left,y=clientY-b.top;
-      if(latest.current.flightData){const f=flights.pick(camera,x/b.width*2-1,-y/b.height*2+1,b.width,b.height,Date.now());if(f)return {title:`${f.callsign} · ${f.type}`,lines:[`${f.category} aircraft`,`${(f.altitudeKm*1000).toFixed(0)} m · ${Math.round(f.speedKms*3600)} km/h · heading ${Math.round(f.heading)}°`,'ADSB.lol · estimated between 15-second updates']};}
-      for(const layer of dataLayers.values()){const hit=layer.pick?.(camera,x,y,b.width,b.height);if(hit)return hit.info;}
+      if(latest.current.flightData){const f=flights.pick(camera,x/b.width*2-1,-y/b.height*2+1,b.width,b.height,Date.now());if(f){const id=f.id;return {info:{title:`${f.callsign} · ${f.type}`,lines:[`${f.category} aircraft`,`${(f.altitudeKm*1000).toFixed(0)} m · ${Math.round(f.speedKms*3600)} km/h · heading ${Math.round(f.heading)}°`,'ADSB.lol · estimated between 15-second updates']},anchor:()=>{const live=flights.find(id);return live&&Date.now()-live.observedAt<30000?flightPosition(live,Date.now()):null;}};}}
+      for(const layer of dataLayers.values()){const hit=layer.pick?.(camera,x,y,b.width,b.height);if(hit)return {info:hit.info,anchor:hit.anchor};}
       return null;
+    };
+    // The pinned card stays with its record: each frame it is moved to the anchor's current
+    // screen position, hidden while that is behind the globe or off-screen, and closed if the
+    // record has gone.
+    let pinned:{anchor:Anchor}|null=null;
+    const anchorRay=new THREE.Vector3(),anchorFoot=new THREE.Vector3(),anchorScreen=new THREE.Vector3();
+    const followPinned=()=>{
+      if(!pinned)return;
+      const world=pinned.anchor();
+      if(!world){pinned=null;card.style.display='none';return;}
+      anchorRay.subVectors(world,camera.position);
+      const t=THREE.MathUtils.clamp(-camera.position.dot(anchorRay)/Math.max(1e-12,anchorRay.lengthSq()),0,1);
+      const hidden=(t>0&&t<1&&anchorFoot.copy(camera.position).addScaledVector(anchorRay,t).lengthSq()<1);
+      anchorScreen.copy(world).project(camera);
+      const b=canvas.getBoundingClientRect(),sx=(anchorScreen.x+1)*b.width/2,sy=(1-anchorScreen.y)*b.height/2;
+      const onScreen=!hidden&&anchorScreen.z<1&&sx>-40&&sx<b.width+40&&sy>-40&&sy<b.height+40;
+      card.style.display=onScreen?'flex':'none';
+      if(onScreen)place(card,sx,sy,340);
     };
     let hoverTick=0;
     const hover=(e:PointerEvent)=>{
       if(e.buttons){tip.style.display='none';return;}
       if(performance.now()-hoverTick<80)return;hoverTick=performance.now();
-      const info=pickAt(e.clientX,e.clientY);tip.style.display=info?'flex':'none';canvas.style.cursor=info?'pointer':'';
+      const info=pickAt(e.clientX,e.clientY)?.info??null;tip.style.display=info?'flex':'none';canvas.style.cursor=info?'pointer':'';
       if(info){fill(tip,info,false);const b=canvas.getBoundingClientRect();place(tip,e.clientX-b.left,e.clientY-b.top,300);}
     };
+    const unpin=()=>{pinned=null;card.style.display='none';};
     const pin=(clientX:number,clientY:number)=>{
-      const info=pickAt(clientX,clientY);if(!info)return false;
-      fill(card,info,true);card.style.display='flex';const b=canvas.getBoundingClientRect();place(card,clientX-b.left,clientY-b.top,340);tip.style.display='none';return true;
+      const hit=pickAt(clientX,clientY);if(!hit)return false;
+      fill(card,hit.info,true);pinned={anchor:hit.anchor};tip.style.display='none';followPinned();return true;
     };
-    const clickAt=(clientX:number,clientY:number)=>{if(pin(clientX,clientY))return;card.style.display='none';const b=canvas.getBoundingClientRect();select((clientX-b.left)/b.width*2-1,-(clientY-b.top)/b.height*2+1);};
-    const dismiss=(e:KeyboardEvent)=>{if(e.key==='Escape')card.style.display='none';};
+    const clickAt=(clientX:number,clientY:number)=>{if(pin(clientX,clientY))return;unpin();const b=canvas.getBoundingClientRect();select((clientX-b.left)/b.width*2-1,-(clientY-b.top)/b.height*2+1);};
+    const dismiss=(e:KeyboardEvent)=>{if(e.key==='Escape')unpin();};
     window.addEventListener('keydown',dismiss);
     renderer.domElement.addEventListener('pointermove',hover);renderer.domElement.addEventListener('pointerleave',()=>{tip.style.display='none';});
     const up = (e: PointerEvent) => { pointers.delete(e.pointerId); touches.delete(e.pointerId); pinchDistance = 0; if (moved || e.button !== 0) return; clickAt(e.clientX, e.clientY); };
@@ -355,6 +375,7 @@ export default function GlobeScene(props: Props) {
       particles.update(camera, latest.current.location, latest.current.atmosphere, latest.current.layers, reduced ? 0 : now / 1000);
       tornadoes.update(terrain, altitude, reduced ? 0 : now / 1000);
       for (const layer of dataLayers.values()) layer.update({ camera, terrain, altitudeKm: altitude, seconds: reduced ? 0 : now / 1000, now: Date.now() });
+      followPinned();
       terrain.advance(reduced ? 1 : dt);
       if (now - terrainTick > 750) { terrainTick = now; terrain.update(camera, renderer.domElement.clientHeight); }
       streets.update(terrain,camera,latest.current.streetOptions);

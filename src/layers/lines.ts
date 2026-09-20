@@ -37,7 +37,7 @@ export class GroundLines {
     let best: Pick | null = null, bestDistance = 8;
     for (const line of this.lines) {
       if (!line.info) continue;
-      let px = NaN, py = NaN;
+      let px = NaN, py = NaN, previousWorld: THREE.Vector3 | null = null;
       for (const [lat, lon] of line.points) {
         const world = globePoint(lat, lon, 1 + (terrain.elevationAt(lat, lon) + this.liftKm) / EARTH_KM);
         const facing = world.dot(eye) > world.lengthSq();
@@ -47,9 +47,9 @@ export class GroundLines {
           const dx = sx - px, dy = sy - py, len2 = dx * dx + dy * dy;
           const t = len2 > 0 ? THREE.MathUtils.clamp(((x - px) * dx + (y - py) * dy) / len2, 0, 1) : 0;
           const distance = Math.hypot(px + dx * t - x, py + dy * t - y);
-          if (distance < bestDistance) { bestDistance = distance; best = { info: line.info, x, y }; }
+          if (distance < bestDistance) { bestDistance = distance; const at = (t < .5 ? previousWorld! : world).clone(); best = { info: line.info, x, y, anchor: () => at }; }
         }
-        px = facing ? sx : NaN; py = sy;
+        px = facing ? sx : NaN; py = sy; previousWorld = world;
       }
     }
     return best;

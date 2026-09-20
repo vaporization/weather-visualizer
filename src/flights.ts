@@ -25,6 +25,7 @@ export class FlightLayer {
  gl_FragColor=vec4(tint,alpha);}`}));
  constructor(){this.points.material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('void main() {','void main() { if(length(gl_PointCoord-vec2(.5))>.5)discard;');};this.points.renderOrder=25;this.trails.renderOrder=25;this.group.add(this.points,this.trails);}
  setData(data:FlightData|null){this.data=data;}
+ find(id:string){return this.data?.flights.find(f=>f.id===id)??null;}
  pick(camera:THREE.Camera,x:number,y:number,width:number,height:number,now:number){
   let best:Flight|null=null,distance=100;
   for(const f of this.data?.flights??[]){if(now-f.observedAt>30000)continue;const p=flightPosition(f,now);if(p.dot(camera.position.clone().sub(p))<=0)continue;const screen=p.project(camera);if(screen.z>1)continue;const d=((screen.x-x)*width/2)**2+((screen.y-y)*height/2)**2;if(d<distance){distance=d;best=f;}}

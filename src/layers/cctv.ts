@@ -13,7 +13,7 @@ export class CctvLayer implements GlobeLayer {
     const d = data as CctvData | null, sources = new Map((d?.sources ?? []).map(s => [s.id, s]));
     this.cloud.set((d?.cameras ?? []).map(row => {
       const [sourceId, id, lat, lon, name] = row as [string, string, number, number, string], source = sources.get(sourceId);
-      return { lat, lon, color: SOURCE_COLORS[sourceId] ?? 0xffffff, info: { title: name, lines: [`${source?.name ?? sourceId} · ${source?.region ?? ''}`, 'Public traffic camera · click for the current still', source?.attribution ?? ''].filter(Boolean), image: `/api/cctv/${encodeURIComponent(sourceId)}/${encodeURIComponent(id)}.jpg` } };
+      return { key: `${sourceId}/${id}`, lat, lon, color: SOURCE_COLORS[sourceId] ?? 0xffffff, info: { title: name, lines: [`${source?.name ?? sourceId} · ${source?.region ?? ''}`, 'Public traffic camera · click for the current still', source?.attribution ?? ''].filter(Boolean), image: `/api/cctv/${encodeURIComponent(sourceId)}/${encodeURIComponent(id)}.jpg` } };
     }));
   }
   update(context: LayerContext) { this.cloud.points.visible = context.altitudeKm < 3000; }
