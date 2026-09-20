@@ -168,6 +168,7 @@ export default function GlobeScene(props: Props) {
       if(pinned){const close=document.createElement('button');close.type='button';close.setAttribute('aria-label','Close');close.textContent='×';close.onclick=()=>unpin();node.append(close);}
       for(const line of info.lines){const p=document.createElement('span');p.textContent=line;node.append(p);}
       if(pinned&&info.image){const img=document.createElement('img');img.alt=`Current still from ${info.title}`;img.src=`${info.image}${info.image.includes('?')?'&':'?'}t=${Date.now()}`;img.onerror=()=>{const gone=document.createElement('span');gone.textContent='Frame unavailable right now.';img.replaceWith(gone);};node.append(img);}
+      if(pinned){const go=document.createElement('button');go.type='button';go.className='inspect-focus';go.textContent='Focus';go.title='Centre the view on this marker';go.onclick=()=>focusPinned();node.append(go);}
     };
     const place=(node:HTMLElement,x:number,y:number,width:number)=>{const b=canvas.getBoundingClientRect();node.style.left=`${Math.min(b.width-width-8,Math.max(8,x+14))}px`;node.style.top=`${Math.max(8,Math.min(b.height-40,y-16))}px`;};
     const pickAt=(clientX:number,clientY:number):{info:Info;anchor:Anchor}|null=>{
@@ -202,6 +203,14 @@ export default function GlobeScene(props: Props) {
       if(info){fill(tip,info,false);const b=canvas.getBoundingClientRect();place(tip,e.clientX-b.left,e.clientY-b.top,300);}
     };
     const unpin=()=>{pinned=null;card.style.display='none';};
+    // Centres the camera over the pinned marker at its current distance, the way focusing a location does;
+    // an airborne or orbiting marker keeps the camera above it.
+    const focusPinned=()=>{
+      const world=pinned?.anchor();if(!world)return;
+      const at=coordinates(world);clickAim=null;heading=0;roll=0;zoomRadius=null;
+      const clearance=world.length()>1.005?.01:.00005; // ~64 km above a satellite or aircraft, ~300 m above a ground marker
+      destination={position:globePoint(at.lat,at.lon,Math.max(world.length()+clearance,camera.position.length())),target:new THREE.Vector3(),up:new THREE.Vector3(0,1,0)};
+    };
     const pin=(clientX:number,clientY:number)=>{
       const hit=pickAt(clientX,clientY);if(!hit)return false;
       fill(card,hit.info,true);pinned={anchor:hit.anchor};tip.style.display='none';followPinned();return true;
