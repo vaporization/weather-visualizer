@@ -16,6 +16,8 @@ import { registerVessels } from './vessels.mjs';
 import { registerPower } from './power.mjs';
 import { registerTransit } from './transit.mjs';
 import { registerCctv } from './cctv.mjs';
+import { registerTraffic } from './traffic.mjs';
+import { registerSettings } from './settings.mjs';
 try { if (!process.env.WEATHER_DESKTOP) process.loadEnvFile('.env.local'); } catch { /* Optional local configuration. */ }
 const app = express();
 registerFlights(app);
@@ -29,6 +31,8 @@ registerVessels(app);
 registerPower(app);
 registerTransit(app);
 registerCctv(app);
+registerTraffic(app);
+registerSettings(app);
 registerGlobalWeather(app);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 registerAtmosphereRoutes(app);
@@ -66,7 +70,8 @@ if (process.argv.includes('--production')) {
   app.get('/{*path}', (_req, res) => res.sendFile(path.join(root, 'dist/index.html')));
 } else {
   const { createServer } = await import('vite');
-  const vite = await createServer({ server: { middlewareMode: true }, appType: 'spa' });
+  // Provider keys live in .env.local for the server only; Vite must neither expose nor watch it.
+  const vite = await createServer({ server: { middlewareMode: true }, appType: 'spa', envDir: false });
   app.use(vite.middlewares);
 }
 const listener = app.listen(Number(process.env.PORT || 5173), '127.0.0.1', () => {

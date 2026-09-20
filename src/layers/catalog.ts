@@ -7,6 +7,7 @@ import { VesselLayer, type VesselData } from './vessels';
 import { PowerLayer, type PowerData } from './power';
 import { TransitLayer, type TransitData } from './transit';
 import { CctvLayer, type CctvData } from './cctv';
+import { TrafficLayer, type TrafficData } from './traffic';
 import type { LayerSpec } from './types';
 const utc = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 export const layerCatalog: LayerSpec[] = [
@@ -69,5 +70,11 @@ export const layerCatalog: LayerSpec[] = [
     attribution: { text: 'AISStream', href: 'https://aisstream.io/' },
     note: 'Self-reported AIS positions relayed by volunteer receivers. Coverage is coastal and receiver-dependent: open ocean and quiet coasts are blank, not empty. Arrows point along the reported heading. Ships broadcast their own identity and class. Needs a free AISStream key in Settings.',
     create: () => new VesselLayer(), describe: d => { const v = d as VesselData; return v.warming ? `Connected · collecting reports (${v.vessels.length.toLocaleString()} so far)` : `${v.vessels.length.toLocaleString()} ships in the last 30 min · ${utc(v.fetchedAt)}`; },
+  },
+  {
+    id: 'traffic', name: 'Traffic congestion', detail: 'TomTom flow · around selection · your key', url: l => `/api/traffic?lat=${l.lat.toFixed(3)}&lon=${l.lon.toFixed(3)}`, refreshMs: 120000,
+    attribution: { text: '© TomTom Traffic', href: 'https://www.tomtom.com/products/traffic-apis/' },
+    note: 'Measured road-segment speeds as a share of free-flow speed, drawn on the terrain around the selected location (about 20 km): green is moving freely, amber is slowing, red is at a crawl, dark is closed. These are aggregate speeds; no vehicle positions are shown or implied. Refreshes every two minutes and counts against the free daily tile allowance of your own TomTom key. Needs a free TomTom key in Settings.',
+    create: () => new TrafficLayer(), describe: d => { const t = d as TrafficData; return `${t.segments.length.toLocaleString()} road segments · ${t.tiles} tiles${t.budget.exhausted ? ' · daily tile budget reached' : ''} · ${utc(t.fetchedAt)}`; },
   },
 ];

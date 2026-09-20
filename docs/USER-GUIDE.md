@@ -82,7 +82,9 @@ Surface imagery comes from Esri World Imagery. Open the desktop **File → Setti
 
 ## Fire and ship keys
 
-Active fires need a free NASA FIRMS map key and ships need a free AISStream key; both go in the desktop **File → Settings** menu and are metered to your own accounts. While the ship layer is on, this computer holds one live connection to AISStream and keeps the last 30 minutes of reports; nothing is stored between sessions.
+Active fires need a free NASA FIRMS map key, ships need a free AISStream key and traffic congestion needs a free TomTom developer key; all are metered to your own accounts. In the desktop app they go in **File → Settings**. When you open the app in a browser (the localhost address), expand **More data → Provider keys** at the bottom of the Atmosphere panel, paste the key and press **Save keys** — it applies immediately, any layer waiting on it loads, and it is remembered in `.env.local` next to the project for the next start. The panel only ever shows the last four characters of a saved key.
+
+**Traffic congestion** colours the roads within about 20 km of the selected place by measured speed as a share of free-flow speed: green is moving freely, amber slowing, red at a crawl and dark closed. These are aggregate segment speeds from TomTom; no vehicle positions are shown or implied. It refreshes every two minutes and reloads when you select somewhere else; each refresh spends 25 tile requests from your key's daily allowance (2,500 a day on the free tier). While the ship layer is on, this computer holds one live connection to AISStream and keeps the last 30 minutes of reports; nothing is stored between sessions.
 
 ## Live aircraft
 

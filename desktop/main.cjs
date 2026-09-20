@@ -13,7 +13,7 @@ function guard(win) {
 async function startBackend() {
  if (backend) { backend.removeAllListeners('exit'); backend.kill(); }
  const saved = settings();
- const env = {...process.env, WEATHER_DESKTOP:'1', PORT:'0', FLIGHT_CONTACT:String(saved.flightContact || ''), ESRI_API_KEY:String(saved.esriKey || ''), FIRMS_MAP_KEY:String(saved.firmsKey || ''), AISSTREAM_API_KEY:String(saved.aisKey || '')};
+ const env = {...process.env, WEATHER_DESKTOP:'1', PORT:'0', FLIGHT_CONTACT:String(saved.flightContact || ''), ESRI_API_KEY:String(saved.esriKey || ''), FIRMS_MAP_KEY:String(saved.firmsKey || ''), AISSTREAM_API_KEY:String(saved.aisKey || ''), TOMTOM_API_KEY:String(saved.tomtomKey || '')};
  backend = utilityProcess.fork(path.join(__dirname,'../server/index.mjs'), ['--production'], {env});
  return await new Promise((resolve,reject)=>{
   const timer=setTimeout(()=>reject(new Error('Local server startup timed out.')),20000);
@@ -28,20 +28,20 @@ function openSettings() {
  settingsWindow.on('closed',()=>settingsWindow=null);
 }
 function openGuide(file) { const w=secureWindow({width:1000,height:800});guard(w);w.loadFile(path.join(__dirname,'../docs',file)); }
-ipcMain.handle('settings:read',event=>{if(event.sender!==settingsWindow?.webContents)throw Error('Invalid sender');const s=settings();return {flightContact:s.flightContact||'',esriKey:s.esriKey||'',firmsKey:s.firmsKey||'',aisKey:s.aisKey||''};});
+ipcMain.handle('settings:read',event=>{if(event.sender!==settingsWindow?.webContents)throw Error('Invalid sender');const s=settings();return {flightContact:s.flightContact||'',esriKey:s.esriKey||'',firmsKey:s.firmsKey||'',aisKey:s.aisKey||'',tomtomKey:s.tomtomKey||''};});
 ipcMain.handle('settings:save',async(event,values)=>{
  if(event.sender!==settingsWindow?.webContents)throw Error('Invalid sender');
  if(!values||typeof values!=='object')throw Error('Invalid settings');
- let {flightContact:contact,esriKey,firmsKey,aisKey}=values;
+ let {flightContact:contact,esriKey,firmsKey,aisKey,tomtomKey}=values;
  if(typeof contact!=='string'||contact.length>200||/[\r\n]/.test(contact))throw Error('Invalid contact');
  contact=contact.trim();
  if(contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact) && !/^https:\/\/[^\s]+$/.test(contact))throw Error('Enter an email address or HTTPS project URL.');
  if(typeof esriKey!=='string'||esriKey.length>600)throw Error('Invalid ArcGIS key');
  esriKey=esriKey.trim();
  if(esriKey && !/^[A-Za-z0-9_.-]+$/.test(esriKey))throw Error('An ArcGIS API key is letters, digits, dots, hyphens and underscores only.');
- for(const [label,value] of [['FIRMS map key',firmsKey],['AISStream API key',aisKey]]){if(typeof value!=='string'||value.length>200)throw Error(`Invalid ${label}`);if(value.trim()&&!/^[A-Za-z0-9_-]+$/.test(value.trim()))throw Error(`A ${label} is letters, digits, hyphens and underscores only.`);}
- firmsKey=firmsKey.trim();aisKey=aisKey.trim();
- fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(configPath(),JSON.stringify({flightContact:contact,esriKey,firmsKey,aisKey},null,2));
+ for(const [label,value] of [['FIRMS map key',firmsKey],['AISStream API key',aisKey],['TomTom API key',tomtomKey]]){if(typeof value!=='string'||value.length>200)throw Error(`Invalid ${label}`);if(value.trim()&&!/^[A-Za-z0-9_-]+$/.test(value.trim()))throw Error(`A ${label} is letters, digits, hyphens and underscores only.`);}
+ firmsKey=firmsKey.trim();aisKey=aisKey.trim();tomtomKey=tomtomKey.trim();
+ fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(configPath(),JSON.stringify({flightContact:contact,esriKey,firmsKey,aisKey,tomtomKey},null,2));
  const url=await startBackend();await mainWindow.loadURL(url);return true;
 });
 app.whenReady().then(async()=>{

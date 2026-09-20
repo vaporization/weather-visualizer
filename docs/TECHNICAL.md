@@ -30,6 +30,8 @@ Camera frames reach the browser only through the local server's allowlisted prox
 | server/vessels.mjs | AISStream websocket, newest report per vessel, idle disconnect |
 | server/power.mjs | Regional Overpass query for lines, substations and plants; voltage parsing |
 | server/transit.mjs | GTFS-Realtime feed registry and a field-number protobuf decoder |
+| server/traffic.mjs | TomTom flow vector tiles around the selection, decoded to speed ratios; per-day tile budget |
+| server/settings.mjs | Browser-mode provider-key entry: status without values, same-origin writes to `.env.local` |
 | server/cctv.mjs | Agency camera lists, an allowlisted frame proxy, per-source normalisers |
 | src/layers/ | Data-layer contract, catalogue and renderers (cables, sites, earthquakes, satellites) |
 | scripts/ingest-datasets.mjs | Rebuilds the compact bundled datasets under public/data |
@@ -74,6 +76,8 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /vessels | Newest AIS report per vessel from the last 30 minutes (needs `AISSTREAM_API_KEY`) |
 | /power?lat=…&lon=… | Power lines with geometry, substations and plants within 60 km |
 | /transit | Vehicle positions from seven open agency feeds, decoded server-side |
+| /traffic?lat=…&lon=… | Road-segment speed ratios and closures from 25 TomTom flow tiles at zoom 12 around the selection (needs `TOMTOM_API_KEY`) |
+| /settings | GET: which provider keys are set (masked, never the value). POST (browser mode, same-origin JSON only): validate, apply live and merge into `.env.local` |
 | /cctv | Camera positions from six agency lists |
 | /cctv/:source/:id.jpg | Current still for a listed camera only; frames are never fetched for caller-supplied addresses |
 | /radar | Region metadata, timestamps, bounds and image URLs |
@@ -100,7 +104,7 @@ Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`
 
 ## Configuration and privacy
 
-For source development, optional `.env.local` can define `FLIGHT_CONTACT`, `ESRI_API_KEY`, `FIRMS_MAP_KEY`, `AISSTREAM_API_KEY`, `PORT` and `OVERPASS_URL`. Never commit or distribute local environment files. `npm run start` serves the production bundle, normally on loopback port 5173.
+For source development, optional `.env.local` can define `FLIGHT_CONTACT`, `ESRI_API_KEY`, `FIRMS_MAP_KEY`, `AISSTREAM_API_KEY`, `TOMTOM_API_KEY`, `TOMTOM_DAILY_TILE_BUDGET` (default 20000), `PORT` and `OVERPASS_URL`. When running in a browser, the same keys can be entered under **Atmosphere → More data → Provider keys**: the page posts them to `/api/settings`, which accepts same-origin JSON only (checked via `Sec-Fetch-Site`/`Origin`), validates them with the same rules as the desktop settings window, applies them to the running process at once and merges them into `.env.local` (mode 0600). The endpoint only ever reports whether a key is set plus its last four characters. Vite is started with `envDir: false` so it neither exposes `.env.local` to the client nor restarts when it changes. Never commit or distribute local environment files. `npm run start` serves the production bundle, normally on loopback port 5173.
 
 Desktop mode sets `WEATHER_DESKTOP=1`, skips `.env.local`, uses an ephemeral port and overrides inherited `FLIGHT_CONTACT` and `ESRI_API_KEY` with the user's saved settings. Settings are stored in `settings.json` under Electron's per-user application-data directory (`app.getPath('userData')`). The contact is not a secret API key: it identifies flight requests and is transmitted to ADSB.lol. It is stored as plain text locally. Each recipient supplies their own contact. The ArcGIS key is a real credential: with one set, imagery is requested from `ibasemaps-api.arcgis.com` and metered to that recipient's own ArcGIS Location Platform allowance (2 million tiles a month on the free tier); without one, the public `server.arcgisonline.com` endpoint is used, which Esri intends for personal use. The key is stored as plain text in settings.json and is never bundled. No centralized proxy or shared paid account is provisioned by this release.
 
@@ -142,6 +146,7 @@ Before shipping a new release: build and run unit tests; smoke-test the packaged
 - GTFS-Realtime vehicle positions: MBTA/MassDOT, CapMetro (data.texas.gov), Metro Transit (Metropolitan Council), HSL (CC BY 4.0), OVapi/Stichting OpenGeo, Entur (NLOD), TransLink Queensland (CC BY 4.0); each feed's terms are recorded in `server/transit.mjs` and credited on every vehicle
 - NASA FIRMS active fire data (recipient's own map key): https://firms.modaps.eosdis.nasa.gov/
 - AISStream AIS relay (recipient's own key; beta service without formal terms): https://aisstream.io/
+- TomTom Traffic Flow tiles (recipient's own key, free tier 2,500 tile requests a day; display requires the TomTom credit shown in the layer): https://developer.tomtom.com/
 - TeleGeography Submarine Cable Map (CC BY-NC-SA 3.0, bundled): https://www.submarinecablemap.com/
 - OpenStreetMap data-centre and dam extracts (ODbL, compiled by Gods Eye View, MIT): https://github.com/halfpixel/gods-eye-view
 - NASA GIBS/MODIS satellite products: https://nasa-gibs.github.io/gibs-api-docs/

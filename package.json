@@ -12,6 +12,7 @@
   },
   "description": "Interactive 3D Earth with live local weather and volumetric atmospheric effects",
   "dependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
     "express": "^5.2.1",
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",

@@ -5,7 +5,8 @@ import { layerCatalog } from './layers/catalog';
 import type { StreetData, StreetOptions } from './StreetOverlay';
 import PanelChrome, { panelAction } from './PanelChrome';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship, Zap, Bus, Video } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudLightning, CloudRain, Crosshair, Droplets, Globe2, Info, Layers3, LoaderCircle, MapPin, Minus, Navigation, Orbit, Pause, Play, Plus, RotateCcw, Search, Snowflake, Sun, Tornado, Wind, X, Cable, Server, Waves, Activity, Satellite, Flame, Ship, Zap, Bus, Video, Gauge } from 'lucide-react';
+import ProviderKeys from './ProviderKeys';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
@@ -41,16 +42,19 @@ export default function App(){
   useEffect(()=>{if(!gamepadOn)return;const timer=setInterval(()=>{const p=connectedPads().find(p=>p.mapping==='standard');const other=connectedPads().length>0;setGamepadStatus(gamepadAccessMessage() || (p?'Controller connected · sticks and triggers ready':other?'Controller detected, but its mapping is unsupported.':'No controller detected. Connect it and press A.'));},1000);return()=>clearInterval(timer);},[gamepadOn]);
   const [location,setLocation]=useState<Location>(places[0]);
   const locationRef=useRef(location);locationRef.current=location;
-  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship,power:Zap,transit:Bus,cctv:Video};
+  const layerIcons:Record<string,typeof Cable>={cables:Cable,datacenters:Server,dams:Waves,earthquakes:Activity,satellites:Satellite,fires:Flame,vessels:Ship,power:Zap,transit:Bus,cctv:Video,traffic:Gauge};
   const [extra,setExtra]=useState<Record<string,{on:boolean;data:unknown;status:string}>>({});
   const toggleExtra=(id:string)=>setExtra(e=>({...e,[id]:{on:!e[id]?.on,data:null,status:''}}));
   const loops=useRef(new Map<string,AbortController>());
   const enabledExtra=layerCatalog.filter(s=>extra[s.id]?.on).map(s=>s.id).join(',');
   const regionalKey=`${location.lat.toFixed(2)},${location.lon.toFixed(2)}`,lastRegional=useRef(regionalKey);
+  const [keysVersion,setKeysVersion]=useState(0),lastKeys=useRef(0);
   useEffect(()=>{
     const wanted=new Set(enabledExtra?enabledExtra.split(','):[]);
     // Regional layers follow the selection: a move restarts their loops for the new place.
     if(lastRegional.current!==regionalKey){lastRegional.current=regionalKey;for(const spec of layerCatalog) if(typeof spec.url==='function'){loops.current.get(spec.id)?.abort();loops.current.delete(spec.id);}}
+    // A newly saved provider key restarts every loop so a layer waiting on it loads now, not at its next refresh.
+    if(lastKeys.current!==keysVersion){lastKeys.current=keysVersion;for(const c of loops.current.values())c.abort();loops.current.clear();}
     for(const [id,c] of loops.current) if(!wanted.has(id)){c.abort();loops.current.delete(id);}
     for(const spec of layerCatalog){
       if(!wanted.has(spec.id)||loops.current.has(spec.id))continue;
@@ -63,7 +67,7 @@ export default function App(){
       };
       void load();c.signal.addEventListener('abort',()=>clearTimeout(timer));
     }
-  },[enabledExtra,regionalKey]);
+  },[enabledExtra,regionalKey,keysVersion]);
   useEffect(()=>()=>{loops.current.forEach(c=>c.abort());},[]);
   const extraLayers=useMemo(()=>Object.fromEntries(layerCatalog.map(s=>[s.id,extra[s.id]?.on?extra[s.id].data:null])),[extra]);
   const [hasSelection,setHasSelection]=useState(false),[streetData,setStreetData]=useState<StreetData|null>(null),[streetStatus,setStreetStatus]=useState(''),[streetRetry,setStreetRetry]=useState(0);
@@ -196,6 +200,7 @@ export default function App(){
           <button role="switch" aria-checked={on} className={`layer-option ${on?'active':''}`} onClick={()=>toggleExtra(spec.id)}><Icon size={19}/><span>{spec.name}<small>{spec.detail}</small></span><span className="switch"><span/></span></button>
           {on&&<><small role="status">{extra[spec.id]?.status||'Loading…'}</small><small>{spec.note}</small><a href={spec.attribution.href} target="_blank" rel="noreferrer">{spec.attribution.text}</a></>}
         </div>;})}
+        <ProviderKeys onSaved={()=>setKeysVersion(v=>v+1)}/>
       </details>
       <div className="layer-note" aria-live="polite">{demo?'Synthetic cloud study':satellite&&hour===0?stats.satellite:globalWeather?`Forecast clouds · ${mapTime?.replace('T',' ')} UTC`:mapStatus}<small>{satellite&&hour>0?'Satellite paused; showing model forecast.':'Cloud geometry is illustrative.'}</small>{!globalWeather&&!satellite&&mapStatus.includes('unavailable')&&<button onClick={()=>setMapRetry(v=>v+1)}>Retry cloud forecast</button>}</div><label className="quality-control">Render quality<select aria-label="Render quality" value={quality} onChange={e=>setQuality(e.target.value as Quality)}><option value="balanced">Balanced</option><option value="high">High</option><option value="ultra">Ultra</option></select></label><div className="layer-note"><span className="tiny-dot"/>WebGL2 · {stats.fps} FPS<small>{layers.wind ? (globalWeather ? 'GFS wind · green 0 → yellow 50 → red 100+ km/h' : mapStatus) : 'True-scale terrain · volumetric atmosphere'}</small></div>
     </aside>
