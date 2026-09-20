@@ -55,7 +55,8 @@ export class PointCloud {
     this.markers = markers;
     this.byKey.clear(); for (const m of markers) if (m.key) this.byKey.set(m.key, m);
     const n = markers.length, geometry = this.points.geometry;
-    if (n > this.capacity || n < this.capacity / 2) {
+    // Allocate on first use even for an empty list, so an empty feed still leaves valid buffers.
+    if (!this.capacity || n > this.capacity || n < this.capacity / 2) {
       this.capacity = Math.max(64, n);
       const attribute = (items: number) => new THREE.BufferAttribute(new Float32Array(this.capacity * items), items).setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute('position', attribute(3)); geometry.setAttribute('size', attribute(1)); geometry.setAttribute('tint', attribute(3)); geometry.setAttribute('shape', attribute(1)); geometry.setAttribute('tangent', attribute(3));

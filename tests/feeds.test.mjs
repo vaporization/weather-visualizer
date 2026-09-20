@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseFirmsCsv, mergeFires } from '../server/fires.mjs';
-import { ingestAis, vesselRows, aisTime } from '../server/vessels.mjs';
+import { ingestAis, vesselRows, aisTime, frameText } from '../server/vessels.mjs';
 test('FIRMS CSV parses VIIRS rows, keeps the strongest detection per cell and drops old or invalid ones', () => {
   const now = Date.parse('2026-09-18T20:00:00Z');
   const header = 'latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight';
@@ -30,4 +30,11 @@ test('AIS envelopes fold into one row per vessel with static data merged and sta
   assert.deepEqual(rows[1].slice(3, 6), [null, null, null], 'unavailable course, speed and heading are null, not sentinel values');
   assert.equal(vesselRows(vessels, now + 3600000).length, 0);
   assert.equal(aisTime('garbage', now), now);
+});
+test('AISStream binary frames decode to the same JSON text as string frames', () => {
+  const json = '{"MessageType":"PositionReport"}', bytes = new TextEncoder().encode(json);
+  assert.equal(frameText(json), json);
+  assert.equal(frameText(bytes.buffer), json, 'ArrayBuffer (Node WebSocket with binaryType arraybuffer)');
+  assert.equal(frameText(new Uint8Array(bytes.buffer, 0, bytes.length)), json, 'typed-array view');
+  assert.equal(frameText(undefined), '', 'unknown payloads become empty text and are ignored');
 });

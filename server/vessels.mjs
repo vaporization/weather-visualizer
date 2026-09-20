@@ -24,6 +24,7 @@ export function ingestAis(vessels, statics, envelope, now = Date.now()) {
   });
   return true;
 }
+export const frameText = data => typeof data === 'string' ? data : data instanceof ArrayBuffer ? Buffer.from(data).toString('utf8') : ArrayBuffer.isView(data) ? Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8') : '';
 export function vesselRows(vessels, now = Date.now(), limit = 30000) {
   const rows = [];
   for (const v of vessels.values()) if (now - v.at <= 1800000) rows.push(v);
@@ -36,9 +37,10 @@ export function registerVessels(app) {
   const connect = () => {
     const key = process.env.AISSTREAM_API_KEY; if (!key || socket) return;
     error = '';
-    const ws = new WebSocket(STREAM); socket = ws;
+    // AISStream sends binary frames; Node's WebSocket delivers those as an ArrayBuffer once asked to.
+    const ws = new WebSocket(STREAM); ws.binaryType = 'arraybuffer'; socket = ws;
     ws.onopen = () => { opened = Date.now(); backoff = 5000; ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [[[-90, -180], [90, 180]]], FilterMessageTypes: [...POSITION_TYPES, 'ShipStaticData'] })); };
-    ws.onmessage = e => { try { const envelope = JSON.parse(typeof e.data === 'string' ? e.data : ''); if (envelope?.error) { error = String(envelope.error); ws.close(); } else ingestAis(vessels, statics, envelope); } catch { /* ignore a malformed frame */ } };
+    ws.onmessage = e => { try { const envelope = JSON.parse(frameText(e.data)); if (envelope?.error) { error = String(envelope.error); ws.close(); } else ingestAis(vessels, statics, envelope); } catch { /* ignore a malformed frame */ } };
     ws.onerror = () => { error ||= 'AISStream connection failed'; };
     ws.onclose = () => { socket = null; if (Date.now() - lastAsked < 180000 && !/api key/i.test(error)) { setTimeout(connect, backoff); backoff = Math.min(60000, backoff * 2); } };
   };

@@ -454,7 +454,9 @@ export default function GlobeScene(props: Props) {
     const s = state.current; if (!s) return;
     for (const spec of layerCatalog) {
       const data = props.extraLayers[spec.id], existing = s.dataLayers.get(spec.id);
-      if (data != null) { const layer = existing ?? spec.create(); if (!existing) { s.dataLayers.set(spec.id, layer); s.scene.add(layer.group); layer.resize?.(s.renderer.domElement.clientWidth, s.renderer.domElement.clientHeight); } layer.setData(data); }
+      if (data != null) { const layer = existing ?? spec.create(); if (!existing) { s.dataLayers.set(spec.id, layer); s.scene.add(layer.group); layer.resize?.(s.renderer.domElement.clientWidth, s.renderer.domElement.clientHeight); }
+        // A malformed payload disables that one layer; it must never unmount the scene.
+        try { layer.setData(data); } catch (e) { console.error(`Layer ${spec.id} rejected its data`, e); s.scene.remove(layer.group); layer.dispose(); s.dataLayers.delete(spec.id); } }
       else if (existing) { s.scene.remove(existing.group); existing.dispose(); s.dataLayers.delete(spec.id); }
     }
   }, [props.extraLayers]);
