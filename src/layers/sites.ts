@@ -17,7 +17,7 @@ export class SiteLayer implements GlobeLayer {
       return { lat: s.lat, lon: s.lon, color: accent?.color ?? this.style.color, info: { title: s.name, lines } };
     }));
   }
-  update(_context: LayerContext) {}
+  update(context: LayerContext) { this.cloud.drape(context.terrain, .03, context.camera, context.altitudeKm); }
   resize(width: number, height: number) { this.cloud.resize(width, height); }
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) { return this.cloud.pick(camera, x, y, width, height); }
   dispose() { this.cloud.dispose(); }

@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import { globePoint } from '../weatherShell';
-export type Shape = 'circle' | 'ring' | 'diamond' | 'square' | 'arrow';
+import { EARTH_KM, globePoint } from '../weatherShell';
+import type { Terrain } from '../terrain';
+export type Shape = 'circle' | 'ring' | 'diamond' | 'square' | 'arrow' | 'ship';
 export type Info = { title: string; lines: string[]; image?: string };
 export type Marker = { lat: number; lon: number; radius?: number; size?: number; color?: THREE.ColorRepresentation; shape?: Shape; heading?: number; info?: Info; key?: string };
 // An anchor re-reads the record it was picked from, so a pinned card follows a ship's next report
 // or a satellite's propagated position; it returns null once the record is gone.
 export type Anchor = () => THREE.Vector3 | null;
 export type Pick = { info: Info; x: number; y: number; anchor: Anchor };
-const SHAPES: Record<Shape, number> = { circle: 0, ring: 1, diamond: 2, square: 3, arrow: 4 };
+const SHAPES: Record<Shape, number> = { circle: 0, ring: 1, diamond: 2, square: 3, arrow: 4, ship: 5 };
 const projected = new THREE.Vector3();
 // Screen-sized markers on the globe. Shape and colour tell categories apart at a glance; an arrow
 // is turned in the vertex shader to point along a compass heading as it appears on screen.
@@ -16,6 +17,7 @@ export class PointCloud {
   private capacity = 0;
   private markers: Marker[] = [];
   private byKey = new Map<string, Marker>();
+  private drapeKey = '';
   private material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: { opacity: { value: .95 }, viewport: { value: new THREE.Vector2(1, 1) } },
@@ -42,7 +44,15 @@ export class PointCloud {
       else if(kind<1.5){inside=step(.3,d)*step(d,.5);edge=1.-smoothstep(.4,.5,abs(d-.4)*2.5);}
       else if(kind<2.5){float m=abs(p.x)+abs(p.y);inside=step(m,.5);edge=1.-smoothstep(.3,.5,m);}
       else if(kind<3.5){float m=max(abs(p.x),abs(p.y));inside=step(m,.42);edge=1.-smoothstep(.25,.42,m);}
-      else{float m=max(-p.x-.45,max(p.y-.3,-p.y-.3)+.75*(p.x+.45)*.8);inside=step(p.x,.5)*step(m,0.);edge=1.-smoothstep(-.3,0.,m);}
+      else if(kind<4.5){float m=max(-p.x-.45,max(p.y-.3,-p.y-.3)+.75*(p.x+.45)*.8);inside=step(p.x,.5)*step(m,0.);edge=1.-smoothstep(-.3,0.,m);}
+      else{
+      // Ship hull seen from above: flat stern, sides tapering to a bow along the heading, with a
+      // dark outline so the glyph stays legible over water, land and haze alike.
+      float hw=.26*(1.-smoothstep(-.05,.4,p.x));float m=max(max(abs(p.y)-hw,-.36-p.x),p.x-.4);
+      if(m>.08)discard;
+      gl_FragColor=vec4(mix(vec3(.02,.04,.08),shade,step(m,0.)),opacity);
+      #include <colorspace_fragment>
+      return;}
       if(inside<.5)discard;
       gl_FragColor=vec4(shade,opacity*(.55+.45*edge));
       #include <colorspace_fragment>
@@ -52,7 +62,7 @@ export class PointCloud {
     this.points = new THREE.Points(new THREE.BufferGeometry(), this.material); this.points.frustumCulled = false; this.points.renderOrder = 8;
   }
   set(markers: Marker[]) {
-    this.markers = markers;
+    this.markers = markers; this.drapeKey = '';
     this.byKey.clear(); for (const m of markers) if (m.key) this.byKey.set(m.key, m);
     const n = markers.length, geometry = this.points.geometry;
     // Allocate on first use even for an empty list, so an empty feed still leaves valid buffers.
@@ -78,6 +88,23 @@ export class PointCloud {
     geometry.setDrawRange(0, n);
   }
   resize(width: number, height: number) { this.material.uniforms.viewport.value.set(width / 2, height / 2); }
+  // Rests markers on the ground: terrain height within a few degrees of the camera's sub-point,
+  // sea level elsewhere, plus a small lift so they clear the surface. Redone only when the terrain
+  // or the camera's neighbourhood changes, so a large layer costs nothing frame to frame.
+  drape(terrain: Terrain, liftKm: number, camera: THREE.Camera, altitudeKm: number) {
+    const sub = camera.position, r = Math.max(1e-9, sub.length()), lat = Math.asin(sub.y / r) * 180 / Math.PI, lon = Math.atan2(-sub.z, sub.x) * 180 / Math.PI;
+    const range = altitudeKm < 800 ? 3 : 0, key = `${terrain.revision}:${range}:${lat.toFixed(1)}:${lon.toFixed(1)}`;
+    if (key === this.drapeKey) return;
+    this.drapeKey = key;
+    const position = this.points.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!position) return;
+    this.markers.forEach((m, i) => {
+      const near = range > 0 && Math.abs(m.lat - lat) < range && Math.abs(((m.lon - lon + 540) % 360) - 180) < range;
+      m.radius = 1 + ((near ? terrain.elevationAt(m.lat, m.lon) : 0) + liftKm) / EARTH_KM;
+      globePoint(m.lat, m.lon, m.radius).toArray(position.array as Float32Array, i * 3);
+    });
+    position.needsUpdate = true;
+  }
   // Nearest marker to a screen position, within its own drawn radius plus a little slack.
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number): Pick | null {
     if (!this.points.visible) return null;

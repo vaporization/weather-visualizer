@@ -17,7 +17,7 @@ export class FireLayer implements GlobeLayer {
       return { lat, lon, size: 3 + heat * 5, color: tint.copy(cool).lerp(hot, heat).getHex(), info: { title: `Fire detection · ${frp.toFixed(0)} MW`, lines: [`${CONFIDENCE[confidence] ?? 'nominal'} confidence · ${night ? 'night' : 'day'} pass · ${SATELLITES[satellite] ?? 'VIIRS'}`, `${hoursAgo.toFixed(1)} h ago · ${lat.toFixed(3)}°, ${lon.toFixed(3)}°`, 'A 375 m thermal anomaly, not a fire perimeter'] } };
     }));
   }
-  update(_context: LayerContext) {}
+  update(context: LayerContext) { this.cloud.drape(context.terrain, .05, context.camera, context.altitudeKm); }
   resize(width: number, height: number) { this.cloud.resize(width, height); }
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) { return this.cloud.pick(camera, x, y, width, height); }
   dispose() { this.cloud.dispose(); }

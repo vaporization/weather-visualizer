@@ -68,7 +68,7 @@ export const layerCatalog: LayerSpec[] = [
   {
     id: 'vessels', name: 'Ships', detail: 'AIS via AISStream · your key', url: '/api/vessels', refreshMs: 15000,
     attribution: { text: 'AISStream', href: 'https://aisstream.io/' },
-    note: 'Self-reported AIS positions relayed by volunteer receivers. Coverage is coastal and receiver-dependent: open ocean and quiet coasts are blank, not empty. Arrows point along the reported heading. Ships broadcast their own identity and class. Needs a free AISStream key in Settings.',
+    note: 'Self-reported AIS positions relayed by volunteer receivers. Coverage is coastal and receiver-dependent: open ocean and quiet coasts are blank, not empty. Hull glyphs point along the reported heading and are coloured by class (magenta when the class is not reported); a dot is a ship with no heading. Ships broadcast their own identity and class. Needs a free AISStream key in Settings.',
     create: () => new VesselLayer(), describe: d => { const v = d as VesselData; return v.warming ? `Connected · collecting reports (${v.vessels.length.toLocaleString()} so far)` : `${v.vessels.length.toLocaleString()} ships in the last 30 min · ${utc(v.fetchedAt)}`; },
   },
   {

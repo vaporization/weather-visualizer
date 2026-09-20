@@ -16,7 +16,7 @@ export class CctvLayer implements GlobeLayer {
       return { key: `${sourceId}/${id}`, lat, lon, color: SOURCE_COLORS[sourceId] ?? 0xffffff, info: { title: name, lines: [`${source?.name ?? sourceId} · ${source?.region ?? ''}`, 'Public traffic camera · click for the current still', source?.attribution ?? ''].filter(Boolean), image: `/api/cctv/${encodeURIComponent(sourceId)}/${encodeURIComponent(id)}.jpg` } };
     }));
   }
-  update(context: LayerContext) { this.cloud.points.visible = context.altitudeKm < 3000; }
+  update(context: LayerContext) { this.cloud.points.visible = context.altitudeKm < 3000; this.cloud.drape(context.terrain, .03, context.camera, context.altitudeKm); }
   resize(width: number, height: number) { this.cloud.resize(width, height); }
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) { return this.cloud.pick(camera, x, y, width, height); }
   dispose() { this.cloud.dispose(); }
