@@ -28,7 +28,7 @@ export class PowerLayer implements GlobeLayer {
     this.substations.set((d?.substations ?? []).map(s => ({ lat: s.lat, lon: s.lon, info: { title: s.name || 'Substation', lines: [`Substation${s.kind ? ` (${s.kind})` : ''}${s.voltageKv ? ` · ${s.voltageKv} kV` : ''}`, s.operator ? `Operator: ${s.operator}` : '', '© OpenStreetMap contributors'].filter(Boolean) } })));
     this.plants.set((d?.plants ?? []).map(p => ({ lat: p.lat, lon: p.lon, color: SOURCE_COLORS[p.source] ?? 0xe6eef2, info: { title: p.name || 'Power plant', lines: [`${p.source ? p.source[0].toUpperCase() + p.source.slice(1) : 'Unspecified'} plant${p.method ? ` · ${p.method}` : ''}${p.output ? ` · ${p.output}` : ''}`, p.operator ? `Operator: ${p.operator}` : '', '© OpenStreetMap contributors'].filter(Boolean) } })));
   }
-  update(context: LayerContext) { this.terrain = context.terrain; this.lines.mesh.visible = context.altitudeKm < 2500; this.lines.update(context.terrain); }
+  update(context: LayerContext) { this.terrain = context.terrain; this.lines.mesh.visible = context.altitudeKm < 2500; this.lines.update(context.terrain); this.substations.drape(context.terrain, .03, context.camera, context.altitudeKm); this.plants.drape(context.terrain, .03, context.camera, context.altitudeKm); }
   resize(width: number, height: number) { this.substations.resize(width, height); this.plants.resize(width, height); }
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) {
     return this.plants.pick(camera, x, y, width, height) ?? this.substations.pick(camera, x, y, width, height) ?? (this.terrain ? this.lines.pick(camera, x, y, width, height, this.terrain) : null);

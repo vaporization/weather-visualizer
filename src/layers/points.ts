@@ -10,6 +10,8 @@ export type Anchor = () => THREE.Vector3 | null;
 export type Pick = { info: Info; x: number; y: number; anchor: Anchor };
 const SHAPES: Record<Shape, number> = { circle: 0, ring: 1, diamond: 2, square: 3, arrow: 4, ship: 5 };
 const projected = new THREE.Vector3();
+// Where a marker sits until a layer drapes it: sea level plus a small lift, never above the ground.
+const GROUND = 1 + .03 / EARTH_KM;
 // Screen-sized markers on the globe. Shape and colour tell categories apart at a glance; an arrow
 // is turned in the vertex shader to point along a compass heading as it appears on screen.
 export class PointCloud {
@@ -76,7 +78,7 @@ export class PointCloud {
     const color = new THREE.Color(), east = new THREE.Vector3(), north = new THREE.Vector3(), up = new THREE.Vector3(), dir = new THREE.Vector3();
     markers.forEach((m, i) => {
       up.copy(globePoint(m.lat, m.lon, 1));
-      up.clone().multiplyScalar(m.radius ?? 1.0002).toArray(position.array as Float32Array, i * 3);
+      up.clone().multiplyScalar(m.radius ?? GROUND).toArray(position.array as Float32Array, i * 3);
       (size.array as Float32Array)[i] = m.size ?? this.defaultSize;
       color.set(m.color ?? this.defaultColor).toArray(tint.array as Float32Array, i * 3);
       (shape.array as Float32Array)[i] = SHAPES[m.shape ?? this.defaultShape];
@@ -112,7 +114,7 @@ export class PointCloud {
     let best: Pick | null = null, bestDistance = Infinity;
     for (const m of this.markers) {
       if (!m.info) continue;
-      const world = globePoint(m.lat, m.lon, m.radius ?? 1.0002);
+      const world = globePoint(m.lat, m.lon, m.radius ?? GROUND);
       // Skip anything the globe itself hides: the eye-to-marker segment must clear the unit sphere.
       ray.subVectors(world, eye);
       const t = THREE.MathUtils.clamp(-eye.dot(ray) / Math.max(1e-12, ray.lengthSq()), 0, 1);
@@ -124,7 +126,7 @@ export class PointCloud {
       if (distance < reach && distance < bestDistance) {
         bestDistance = distance;
         const key = m.key, fixed = world.clone();
-        best = { info: m.info, x: sx, y: sy, anchor: key ? () => { const live = this.byKey.get(key); return live ? globePoint(live.lat, live.lon, live.radius ?? 1.0002) : null; } : () => fixed };
+        best = { info: m.info, x: sx, y: sy, anchor: key ? () => { const live = this.byKey.get(key); return live ? globePoint(live.lat, live.lon, live.radius ?? GROUND) : null; } : () => fixed };
       }
     }
     return best;

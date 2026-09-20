@@ -17,7 +17,7 @@ export class TransitLayer implements GlobeLayer {
       return { key: `${feedId}/${label || `${lat},${lon}`}`, lat, lon, heading: bearing ?? 0, shape: bearing == null ? 'circle' : 'arrow', size: bearing == null ? 5 : 8, color: FEED_COLORS[feedId] ?? 0xffffff, info: { title: `${feed?.name ?? feedId}${route ? ` · route ${route}` : ''}`, lines: [`${feed?.region ?? ''}${label ? ` · vehicle ${label}` : ''}`, `${speed != null ? `${speed} km/h · ` : ''}${bearing != null ? `${bearing}° · ` : ''}reported ${ageS < 90 ? `${ageS} s` : `${Math.round(ageS / 60)} min`} ago`, `GTFS-Realtime · ${feed?.attribution ?? ''}`].filter(Boolean) } } as const;
     }));
   }
-  update(_context: LayerContext) {}
+  update(context: LayerContext) { this.cloud.drape(context.terrain, .03, context.camera, context.altitudeKm); }
   resize(width: number, height: number) { this.cloud.resize(width, height); }
   pick(camera: THREE.Camera, x: number, y: number, width: number, height: number) { return this.cloud.pick(camera, x, y, width, height); }
   dispose() { this.cloud.dispose(); }

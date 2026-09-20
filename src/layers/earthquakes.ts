@@ -12,6 +12,7 @@ export class EarthquakeLayer implements GlobeLayer {
   constructor() { this.group.add(this.cloud.points); }
   setData(data: unknown) { this.quakes = (data as QuakeData | null)?.quakes ?? []; this.stamped = 0; }
   update(context: LayerContext) {
+    this.cloud.drape(context.terrain, .03, context.camera, context.altitudeKm);
     if (context.now - this.stamped < 60000) return;
     this.stamped = context.now;
     const fresh = new THREE.Color(0xff5a3c), old = new THREE.Color(0xe0b86a), tint = new THREE.Color();
