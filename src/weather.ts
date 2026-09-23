@@ -6,7 +6,7 @@ export type Storm = { id: string; name: string; classification: string; intensit
 // Everything the renderer needs to place a real storm. Radii are per compass quadrant because the
 // advisory publishes them that way and most storms are genuinely lopsided; spin is the rotation
 // direction, which is set by the hemisphere and was previously hard-coded northern.
-export type StormShape = { eyeKm: number; eyewallKm: number; shieldKm: number; quadrantsKm: [number, number, number, number]; spin: 1 | -1; intensityKt: number; motionDeg: number; shieldMeasured: boolean; eyewallMeasured: boolean };
+export type StormShape = { lat: number; lon: number; eyeKm: number; eyewallKm: number; shieldKm: number; quadrantsKm: [number, number, number, number]; spin: 1 | -1; intensityKt: number; motionDeg: number; shieldMeasured: boolean; eyewallMeasured: boolean };
 export type Layers = { clouds: boolean; precipitation: boolean; wind: boolean; grid: boolean };
 export const places: Location[] = [
   { lat: 40.7128, lon: -74.006, name: 'New York', region: 'New York, United States' },
@@ -77,6 +77,7 @@ export function stormShape(storm: Storm | null, polygons: number[][][]): StormSh
   const eyeKm = Math.max(6, Math.min(eyewallKm * .72, eyewallKm * (1 - Math.min(.55, intensityKt / 260))));
   const quadrantsKm = (shieldMeasured ? shieldQuadrants : [shieldKm, shieldKm, shieldKm, shieldKm]) as [number, number, number, number];
   return {
+    lat: centre.lat, lon: centre.lon,
     eyeKm, eyewallKm, shieldKm, quadrantsKm,
     spin: centre.lat >= 0 ? 1 : -1, intensityKt,
     motionDeg: Number.isFinite(storm.movementDir as number) ? (storm.movementDir as number) : 0,

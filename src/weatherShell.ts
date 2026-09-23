@@ -2,6 +2,7 @@ import { windPaletteGLSL } from './windPalette';
 import * as THREE from 'three';
 import type { AtmosphereState, Quality } from './atmosphere';
 import type { Location, StormShape } from './weather';
+export const MAX_STORMS = 6;
 
 export const EARTH_KM = 6371;
 export function globePoint(lat: number, lon: number, radius = 1) {
@@ -104,9 +105,13 @@ export class WeatherShell {
         center: { value: new THREE.Vector3() }, east: { value: new THREE.Vector3() }, north: { value: new THREE.Vector3() },
         lowBase: { value: 1.2 }, thickness: { value: 2.5 }, widthKm: { value: 160 }, terrainHeight: { value: 0 },
         wind: { value: new THREE.Vector3() }, clock: { value: 0 }, cloudEnabled: { value: 1 }, satelliteEnabled: { value: 1 }, regionalEnabled: { value: 0 }, satelliteLod: { value: 0 }, demo: { value: 0 },
-        stormEnabled: { value: 0 }, stormRadiusKm: { value: 220 },
+        stormCount: { value: 0 },
+        stormCentre: { value: Array.from({ length: MAX_STORMS }, () => new THREE.Vector3()) },
+        stormEast: { value: Array.from({ length: MAX_STORMS }, () => new THREE.Vector3()) },
+        stormNorth: { value: Array.from({ length: MAX_STORMS }, () => new THREE.Vector3()) },
+        stormQuads: { value: Array.from({ length: MAX_STORMS }, () => new THREE.Vector4(200, 200, 200, 200)) },
+        stormEye: { value: new Float32Array(MAX_STORMS) }, stormWall: { value: new Float32Array(MAX_STORMS) }, stormSpin: { value: new Float32Array(MAX_STORMS) },
         profileMap: { value: this.profile }, profileAvailable: { value: 0 }, profileTopKm: { value: 16 }, shear: { value: new THREE.Vector3() },
-        stormEyeKm: { value: 18 }, stormEyewallKm: { value: 45 }, stormQuadrants: { value: new THREE.Vector4(220, 220, 220, 220) }, stormSpin: { value: 1 },
         rainEnabled: { value: 1 }, rainRate: { value: 0 }, snowRate: { value: 0 }, visibilityKm: { value: 50 }, steps: { value: 96 },
       },
       vertexShader: `out vec3 worldPoint; void main(){vec4 p=modelMatrix*vec4(position,1.);worldPoint=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
@@ -120,13 +125,18 @@ export class WeatherShell {
         uniform float depthEnabled, cameraFar; uniform vec2 screenSize; uniform vec3 cameraForward;
         uniform vec3 eye, sun, center, east, north, wind;
         uniform float satelliteLod, lowBase, thickness, widthKm, terrainHeight, clock, cloudEnabled, satelliteEnabled, regionalEnabled, demo, rainEnabled, rainRate, snowRate, visibilityKm;
-        uniform float stormEnabled, stormRadiusKm;
         uniform sampler3D profileMap; uniform float profileAvailable, profileTopKm; uniform vec3 shear;
-        uniform float stormEyeKm, stormEyewallKm, stormSpin; uniform vec4 stormQuadrants;
+        uniform int stormCount;
+        uniform vec3 stormCentre[${MAX_STORMS}], stormEast[${MAX_STORMS}], stormNorth[${MAX_STORMS}];
+        uniform vec4 stormQuads[${MAX_STORMS}];
+        uniform float stormEye[${MAX_STORMS}], stormWall[${MAX_STORMS}], stormSpin[${MAX_STORMS}];
         uniform int steps;
         out vec4 outColor;
         const float R=6371.; const float PI=3.14159265;
         float sampleFootprint=0.01;
+        // How completely a storm owns the sample covers() last looked at: its coverage is already a
+        // resolved cloud amount and must not be run through the ordinary optical reconstruction again.
+        float coverStormWeight=0.;
         ${windPaletteGLSL}
         vec2 sphere(vec3 o,vec3 d,float radius){float b=dot(o,d);float c=dot(o,o)-radius*radius;float h=b*b-c;if(h<0.)return vec2(1e9,-1e9);h=sqrt(h);return vec2(-b-h,-b+h);}
         // Ordered dithering, not white noise: a random offset per pixel makes neighbours
@@ -152,25 +162,39 @@ export class WeatherShell {
         }
         // The advisory publishes wind radii per compass quadrant, so the storm's reach is interpolated
         // around the compass instead of being averaged into one circle.
-        float stormReach(float bearing){
+        float stormReach(vec4 quads,float bearing){
           float t=bearing/(PI*.5);float i=floor(t);float f=t-i;f=f*f*(3.-2.*f);
-          return mix(stormQuadrants[int(mod(i,4.))],stormQuadrants[int(mod(i+1.,4.))],f);
+          return mix(quads[int(mod(i,4.))],quads[int(mod(i+1.,4.))],f);
+        }
+        // Where a sample sits inside a given storm: local offset, distance, bearing and that storm's
+        // reach on that bearing. Returns reach <= 0 when the sample is outside it altogether.
+        vec4 stormLocal(int i,vec3 p){
+          vec3 d=p-stormCentre[i];
+          vec2 xy=vec2(dot(d,stormEast[i]),dot(d,stormNorth[i]));
+          float r=length(xy);
+          float bearing=mod(atan(xy.x,xy.y),2.*PI);
+          return vec4(xy,r,stormReach(stormQuads[i],bearing));
         }
         vec3 covers(vec3 p){
           vec2 uv=geoUV(p);float observed=textureLod(satelliteMap,uv,satelliteLod).a*satelliteEnabled;
           vec3 global=satelliteEnabled>.5 ? vec3(observed*.9,observed*.25,observed*.12) : textureLod(forecastCloudMap,uv,0.).rgb*globalAvailable;
           vec3 delta=p-center;vec2 xy=vec2(dot(delta,east),dot(delta,north));
           vec3 local=textureLod(weatherMap,xy/widthKm+.5,0.).rgb;
-          if(demo>.5||stormEnabled>.5){
-            // Seen from orbit the storm is the same body the close view draws, flattened: an eye, an
-            // eyewall, logarithmic rainbands and a cirrus canopy, reaching as far as the advisory says
-            // in each quadrant. Noise breaks the banding up so it reads as cloud, not as a drawn spiral.
-            float r=length(xy);
-            float bearing=mod(atan(xy.x,xy.y),2.*PI);
-            float reach=stormReach(bearing);
-            float eye=stormEyeKm,wall=stormEyewallKm;
+          vec3 field=satelliteEnabled>.5 ? global : forecastFormation(p,global);
+          coverStormWeight=0.;
+          // Seen from orbit each storm is the same body the close view draws, flattened: an eye, an
+          // eyewall, logarithmic rainbands and a cirrus canopy, reaching as far as the advisory says in
+          // each quadrant. Noise breaks the banding up so it reads as cloud, not as a drawn spiral. It
+          // is mixed into the surrounding field where it stands rather than replacing the whole globe.
+          for(int i=0;i<${MAX_STORMS};i++){
+            if(i>=stormCount)break;
+            vec4 loc=stormLocal(i,p);
+            float r=loc.z, reach=loc.w;
+            if(r>reach*1.15)continue;
+            float bearing=mod(atan(loc.x,loc.y),2.*PI);
+            float eye=stormEye[i],wall=stormWall[i],spin=stormSpin[i];
             float twist=log(max(r,eye)/max(eye,1.))*2.6;
-            float bands=.38+.62*pow(.5+.5*sin((bearing*stormSpin-twist+clock*.02*stormSpin)*2.),1.5);
+            float bands=.38+.62*pow(.5+.5*sin((bearing*spin-twist+clock*.02*spin)*2.),1.5);
             float wallBand=exp(-pow((r-wall*1.3)/max(9.,wall*.85),2.));
             float outer=1.-smoothstep(reach*.70,reach*1.08,r);
             float clear=smoothstep(eye*.85,eye*1.15,r);
@@ -180,15 +204,19 @@ export class WeatherShell {
             amount=clamp(amount*(.45+.9*grain),0.,1.);
             float canopy=(1.-smoothstep(reach*.88,reach*1.12,r))*clear*.6*(.55+.6*grain);
             amount=max(amount,canopy);
-            local=vec3(amount,amount*.34,amount*.2);
-            return mix(global,local,1.-smoothstep(reach*1.05,reach*1.35,r));
+            // The eye has to cut through whatever cloud was already there, so the storm takes over
+            // completely at its core. It stops overriding exactly where its own cloud runs out, so it
+            // does not scrub a dark ring out of the sky it is sitting in.
+            float hold=1.-smoothstep(reach*.80,reach*1.12,r);
+            field=mix(field,vec3(amount,amount*.34,amount*.2),hold);
+            coverStormWeight=max(coverStormWeight,hold);
           }
-          return satelliteEnabled>.5 ? global : forecastFormation(p,global);
+          return field;
         }
         float cloudLayer(vec3 p,float h,float base,float depth,float cover,float scale){
           float y=(h-base)/depth;if(y<0.||y>1.||cover<.015)return 0.;
           float profile=smoothstep(0.,.12,y)*(1.-smoothstep(.52,1.,y));
-          vec3 advected=p-wind*clock*regionalWeight(p)*max(demo,stormEnabled);
+          vec3 advected=p-wind*clock*regionalWeight(p)*demo;
           // Differently rotated, incommensurate scales avoid a repeated noise cube.
           mat3 rotation=mat3(.36,-.8,.48,.8,.0,-.6,.48,.6,.64);
           vec3 q=advected*scale;
@@ -220,47 +248,60 @@ ${SHAPED_CLOUD_GLSL}
         // funnel rather than a hole punched through a flat disc; rainbands follow a logarithmic spiral,
         // which is the shape they actually take; and a cirrus canopy spreads over the top, which is most
         // of what the storm shows from orbit. Rotation follows the hemisphere.
-        float stormDensity(vec3 p,float h){
-          vec3 delta=p-center;vec2 xy=vec2(dot(delta,east),dot(delta,north));
-          float r=length(xy);
-          float bearing=mod(atan(xy.x,xy.y),2.*PI);
-          float reach=stormReach(bearing);
-          if(r>reach*1.3)return 0.;
-          float slope=1.+h*.075;
-          float eye=stormEyeKm*slope,wall=stormEyewallKm*slope;
-          float twist=log(max(r,eye)/max(eye,1.))*2.6;
-          float bands=.42+.58*pow(.5+.5*sin((bearing*stormSpin-twist+clock*.02*stormSpin)*2.),1.6);
-          float wallBand=exp(-pow((r-wall)/max(6.,wall*.45),2.));
-          float outer=1.-smoothstep(reach*.72,reach*1.12,r);
-          float topKm=mix(mix(4.5,9.5,outer),15.5,wallBand);
-          float vertical=smoothstep(.6,1.7,h)*(1.-smoothstep(topKm-2.2,topKm,h));
-          float clear=smoothstep(eye*.82,eye*1.12,r);
-          float amount=clamp(wallBand*1.35+bands*outer*.8,0.,1.)*clear*vertical;
-          float canopy=(1.-smoothstep(reach*.95,reach*1.2,r))*smoothstep(8.5,10.5,h)*(1.-smoothstep(13.,15.5,h))*.55*clear;
-          amount=max(amount,canopy);
-          if(amount<.02)return 0.;
-          // The cloud field turns with the storm, faster near the core, so bands sweep rather than drift.
-          float spin=clock*.014*stormSpin*(1.-smoothstep(eye,reach*1.2,r));
-          float cs=cos(spin),sn=sin(spin);
-          vec2 turned=vec2(xy.x*cs-xy.y*sn,xy.x*sn+xy.y*cs);
-          return shapedCloud(center+east*turned.x+north*turned.y+normalize(p)*h*14.,amount,.02,sampleFootprint);
+        // Every active storm, drawn where it actually is. The eyewall leans outward as it rises, so
+        // the eye is a slanted funnel rather than a hole punched through a flat disc; rainbands follow a
+        // logarithmic spiral, which is the shape they take; a cirrus canopy spreads over the top.
+        // Rotation follows the hemisphere. Returns the storm's density and how completely it owns this
+        // sample, so it can take over at its core and hand back to the ordinary sky past its edge.
+        vec2 stormField(vec3 p,float h){
+          vec2 found=vec2(0.);
+          for(int i=0;i<${MAX_STORMS};i++){
+            if(i>=stormCount)break;
+            vec4 loc=stormLocal(i,p);
+            float r=loc.z, reach=loc.w;
+            if(r>reach*1.15)continue;
+            float hold=1.-smoothstep(reach*.80,reach*1.12,r);
+            if(hold<=found.y)continue;
+            float bearing=mod(atan(loc.x,loc.y),2.*PI);
+            float spin=stormSpin[i];
+            float slope=1.+h*.075;
+            float eye=stormEye[i]*slope,wall=stormWall[i]*slope;
+            float twist=log(max(r,eye)/max(eye,1.))*2.6;
+            float bands=.42+.58*pow(.5+.5*sin((bearing*spin-twist+clock*.02*spin)*2.),1.6);
+            float wallBand=exp(-pow((r-wall)/max(6.,wall*.45),2.));
+            float outer=1.-smoothstep(reach*.72,reach*1.12,r);
+            float topKm=mix(mix(4.5,9.5,outer),15.5,wallBand);
+            float vertical=smoothstep(.6,1.7,h)*(1.-smoothstep(topKm-2.2,topKm,h));
+            float clear=smoothstep(eye*.82,eye*1.12,r);
+            float amount=clamp(wallBand*1.35+bands*outer*.8,0.,1.)*clear*vertical;
+            float canopy=(1.-smoothstep(reach*.95,reach*1.2,r))*smoothstep(8.5,10.5,h)*(1.-smoothstep(13.,15.5,h))*.55*clear;
+            amount=max(amount,canopy);
+            // The cloud field turns with the storm, faster near the core, so bands sweep rather than drift.
+            float turn=clock*.014*spin*(1.-smoothstep(eye,reach*1.2,r));
+            float cs=cos(turn),sn=sin(turn);
+            vec2 turned=vec2(loc.x*cs-loc.y*sn,loc.x*sn+loc.y*cs);
+            float d=amount<.02?0.:shapedCloud(stormCentre[i]+stormEast[i]*turned.x+stormNorth[i]*turned.y+normalize(p)*h*14.,amount,.02,sampleFootprint);
+            found=vec2(d,hold);
+          }
+          return found;
         }
         float density(vec3 p){
           float h=length(p)-R;if(h<.08||h>16.||cloudEnabled<.5)return 0.;
-          // Inside the regional box the model's column replaces the fixed slabs. The hurricane study
-          // and an analyzed storm keep their own structure, so they opt out; so does the satellite view,
-          // where the point is to show what was observed rather than what the model has.
-          float synthetic=max(demo,stormEnabled);
-          if(synthetic>.5)return stormDensity(p,h);
+          // A storm is part of the sky, not a mode: it is computed where it stands and mixed over
+          // whatever the ordinary cloud field produced there, so browsing the globe shows it in place.
+          vec2 storm=stormField(p,h);
+          // Inside the regional box the model's column replaces the fixed slabs. The satellite view
+          // opts out, where the point is to show what was observed rather than what the model has.
           float blend=profileAvailable*regionalWeight(p)*(1.-step(.5,satelliteEnabled));
-          if(blend>=.999)return columnDensity(p,h);
-          vec3 coverage=covers(p);float w=regionalWeight(p)*max(demo,stormEnabled);
+          if(blend>=.999)return mix(columnDensity(p,h),storm.x,storm.y);
+          vec3 coverage=covers(p);float w=regionalWeight(p)*demo;
           float base=mix(1.15,lowBase+terrainHeight,w),deep=mix(3.1,thickness,w);
           float low=cloudLayer(p,h,base,deep,coverage.r,.045);
           float mid=cloudLayer(p,h,max(4.8,base+deep+.3),1.4,coverage.g,.022)*.52;
           float high=cloudLayer(p*vec3(1.,.42,1.),h,10.,1.1,coverage.b,.018)*.15;
           float slabs=low+mid+high;
-          return blend<=.001 ? slabs : mix(slabs,columnDensity(p,h),blend);
+          float ordinary=blend<=.001 ? slabs : mix(slabs,columnDensity(p,h),blend);
+          return mix(ordinary,storm.x,storm.y);
         }
         float lightDepth(vec3 p){float sum=0.;float stride=.16;float travel=.08;for(int j=0;j<5;j++){sum+=density(p+sun*travel)*stride;travel+=stride;stride*=1.8;}return sum;}
         void main(){
@@ -304,13 +345,18 @@ ${SHAPED_CLOUD_GLSL}
           if(end>begin&&cloudEnabled>.5&&orbitalBlend>0.){
             vec2 shellHit=sphere(origin,ray,R+2.8);float t=max(shellHit.x,0.);vec3 p=origin+ray*t;
             sampleFootprint=max(length(dFdx(p)),length(dFdy(p)));
-            vec3 c=covers(p);float synthetic=max(demo,stormEnabled);
+            // A storm existing somewhere must not change how ordinary cloud is worked out anywhere
+            // else: covers() already returns the storm in the same layout as the rest of the field.
+            vec3 c=covers(p);float synthetic=demo;
             float amount=(satelliteEnabled>.5||synthetic>.5) ? clamp(c.r+c.g*.3+c.b*.12,0.,1.) : textureLod(forecastCloudMap,geoUV(p),0.).a*globalAvailable;
             if(satelliteEnabled<.5 && synthetic<.5) amount=1.-(1.-c.r)*(1.-c.g)*(1.-c.b);
             if(satelliteEnabled<.5 && synthetic<.5 && cameraAltitude<6000.){
               vec3 radial=normalize(p);
               float optical=cloudLayer(radial*(R+2.3),2.3,1.15,3.1,c.r,.045)*1.6+c.g*.45+c.b*.15;
               float resolved=1.-exp(-optical);
+              // A storm's coverage is already resolved, so it passes through rather than being
+              // re-noised, which would smear its eye shut at this range.
+              resolved=mix(resolved,clamp(c.r+c.g*.3+c.b*.12,0.,1.),coverStormWeight);
               amount=mix(resolved,amount,smoothstep(1800.,6000.,cameraAltitude));
             }
             float light=smoothstep(-.06,.45,dot(normalize(p),sun));
@@ -410,16 +456,23 @@ ${SHAPED_CLOUD_GLSL}
     u.profileAvailable.value = a.profileAvailable ? 1 : 0;
     u.shear.value.copy(u.east.value).multiplyScalar(a.shear[0]).addScaledVector(u.north.value, a.shear[1]);
   }
-  setStorm(active: boolean, radiusKm: number, shape: StormShape | null = null) {
+  // Every active storm at once. Each is placed by its own centre with its own local frame, so the
+  // shader can draw them where they stand instead of the globe switching into a single-storm mode.
+  setStorms(shapes: StormShape[]) {
     const u = this.material.uniforms;
-    u.stormEnabled.value = active ? 1 : 0;
-    u.stormRadiusKm.value = Math.max(60, Math.min(900, radiusKm));
-    // Without an advisory to read from, the hurricane study states its own proportions.
-    u.stormEyeKm.value = shape ? shape.eyeKm : 20;
-    u.stormEyewallKm.value = shape ? shape.eyewallKm : 48;
-    u.stormSpin.value = shape ? shape.spin : 1;
-    const q = shape ? shape.quadrantsKm : [radiusKm * .5, radiusKm * .5, radiusKm * .5, radiusKm * .5];
-    u.stormQuadrants.value.set(Math.max(30, q[0]), Math.max(30, q[1]), Math.max(30, q[2]), Math.max(30, q[3]));
+    const kept = shapes.slice(0, MAX_STORMS);
+    u.stormCount.value = kept.length;
+    kept.forEach((shape, i) => {
+      const lon = shape.lon * Math.PI / 180;
+      (u.stormCentre.value[i] as THREE.Vector3).copy(globePoint(shape.lat, shape.lon, EARTH_KM));
+      const east = (u.stormEast.value[i] as THREE.Vector3).set(-Math.sin(lon), 0, -Math.cos(lon));
+      (u.stormNorth.value[i] as THREE.Vector3).crossVectors(globePoint(shape.lat, shape.lon), east).normalize();
+      const q = shape.quadrantsKm;
+      (u.stormQuads.value[i] as THREE.Vector4).set(Math.max(30, q[0]), Math.max(30, q[1]), Math.max(30, q[2]), Math.max(30, q[3]));
+      (u.stormEye.value as Float32Array)[i] = shape.eyeKm;
+      (u.stormWall.value as Float32Array)[i] = shape.eyewallKm;
+      (u.stormSpin.value as Float32Array)[i] = shape.spin;
+    });
   }
   setCloudForecast(texture: THREE.Texture) { this.forecastClouds.dispose(); this.forecastClouds = texture; this.material.uniforms.forecastCloudMap.value = texture; }
   setGlobal(texture: THREE.Texture) { this.global.dispose(); this.global = texture; this.material.uniforms.globalMap.value = texture; this.material.uniforms.globalAvailable.value = 1; }

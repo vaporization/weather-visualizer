@@ -81,10 +81,10 @@ test('the storm body has a clear eye, turns with its hemisphere and is lopsided 
     u.satelliteEnabled.value = 0; u.rainEnabled.value = 0; u.globalAvailable.value = 0;
     u.screenSize.value.set(size, size); u.steps.value = 144;
     const atmosphere = buildAtmosphere(null, [], null, '2026-09-22T12:00', 0);
-    const shape = (quads: number[], spin: 1 | -1) => ({ eyeKm: 16, eyewallKm: 34, shieldKm: Math.max(...quads), quadrantsKm: quads, spin, intensityKt: 140, motionDeg: 0, measured: true });
+    const shape = (lat: number, quads: number[], spin: 1 | -1) => ({ lat, lon: 0, eyeKm: 16, eyewallKm: 34, shieldKm: Math.max(...quads), quadrantsKm: quads, spin, intensityKt: 140, motionDeg: 0, shieldMeasured: true, eyewallMeasured: true });
     const render = (lat: number, quads: number[], spin: 1 | -1) => {
       shell.setAtmosphere(atmosphere, { lat, lon: 0, name: 'x', region: 'x' }, false);
-      shell.setStorm(true, 300, shape(quads, spin) as never);
+      shell.setStorms([shape(lat, quads, spin)] as never);
       u.sun.value.copy(globePoint(lat, 0, 1)).normalize();
       const eye = globePoint(lat, 0, 1 + 900 / EARTH_KM);
       camera.position.copy(eye);
@@ -127,5 +127,81 @@ test('the storm body has a clear eye, turns with its hemisphere and is lopsided 
   expect(out.mirrorDiff).toBeLessThan(out.sameDiff * 0.75);
   // Wide quadrants carry more cloud than narrow ones.
   expect(out.wide).toBeGreaterThan(out.narrow * 1.15);
+  expect(errors).toEqual([]);
+});
+
+// A cyclone is part of the weather, not a mode you switch into: it has to appear where it stands
+// while you browse, without being selected, and the ordinary sky around it has to survive.
+test('storms are drawn in place alongside ordinary cloud, and several at once', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/');
+  const out = await page.evaluate(async () => {
+    const THREE = await import('/node_modules/.vite/deps/three.js');
+    const { WeatherShell, globePoint, EARTH_KM, MAX_STORMS } = await import('/src/weatherShell.ts');
+    const { buildAtmosphere } = await import('/src/atmosphere.ts');
+    const size = 300;
+    const renderer = new THREE.WebGLRenderer({ antialias: false }); renderer.setSize(size, size);
+    const target = new THREE.WebGLRenderTarget(size, size);
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(42, 1, .001, 90), shell = new WeatherShell();
+    scene.add(shell.mesh);
+    const u = shell.material.uniforms;
+    u.satelliteEnabled.value = 0; u.screenSize.value.set(size, size); u.steps.value = 144; u.rainEnabled.value = 0;
+    // An ordinary overcast sky everywhere, from the global forecast rather than any storm.
+    const sky = new THREE.DataTexture(new Uint8Array(Array.from({ length: 16 * 4 }, (_, i) => i % 4 === 0 ? 150 : i % 4 === 3 ? 255 : 30)), 4, 4);
+    sky.needsUpdate = true; shell.setCloudForecast(sky); u.globalAvailable.value = 1;
+    const shape = (lat: number, lon: number) => ({ lat, lon, eyeKm: 16, eyewallKm: 34, shieldKm: 220, quadrantsKm: [220, 220, 220, 220], spin: lat >= 0 ? 1 : -1, intensityKt: 140, motionDeg: 0, shieldMeasured: true, eyewallMeasured: true });
+    // The camera sits over open sky, nowhere near either storm and with neither "selected".
+    const eye = globePoint(0, 0, 1 + 1500 / EARTH_KM);
+    camera.position.copy(eye);
+    camera.up.copy(new THREE.Vector3(0, 1, 0).projectOnPlane(globePoint(0, 0, 1).normalize()).normalize());
+    camera.lookAt(globePoint(0, 0, 1)); camera.updateMatrixWorld();
+    const shoot = (storms: unknown[]) => {
+      shell.setAtmosphere(buildAtmosphere(null, [], null, '2026-09-22T12:00', 0), { lat: 0, lon: 0, name: 'x', region: 'x' }, false);
+      shell.setStorms(storms as never);
+      u.sun.value.copy(globePoint(0, 0, 1)).normalize(); u.eye.value.copy(eye);
+      renderer.setRenderTarget(target); renderer.render(scene, camera);
+      const bytes = new Uint8Array(size * size * 4);
+      renderer.readRenderTargetPixels(target, 0, 0, size, size, bytes);
+      return bytes;
+    };
+    const none = shoot([]);
+    const two = shoot([shape(4, -4), shape(-5, 5)]);
+    u.cloudEnabled.value = 0;
+    const bare = shoot([]);
+    u.cloudEnabled.value = 1;
+    const differing = (a: Uint8Array, b: Uint8Array, x0: number, x1: number, y0: number, y1: number) => {
+      let n = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * size + x) * 4; if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 26) n++; }
+      return n;
+    };
+    const brightness = (b: Uint8Array, x0: number, x1: number, y0: number, y1: number) => {
+      let sum = 0, n = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * size + x) * 4; sum += (b[i] + b[i + 1] + b[i + 2]) / 3; n++; }
+      return sum / Math.max(1, n);
+    };
+    const half = size / 2;
+    const result = {
+      max: MAX_STORMS,
+      // Each storm changes its own corner of the frame; both must appear from one unselected view.
+      // Read pixels put row zero at the bottom, so the northern storm is the high rows.
+      northWest: differing(none, two, 0, half, half, size),
+      southEast: differing(none, two, half, size, 0, half),
+      // There is genuinely cloud in this scene to disturb.
+      cloudPresent: differing(bare, none, 0, size, 0, size),
+      // Away from both storms the sky must be untouched, not blanked by one taking the globe over.
+      quietNorthEast: differing(none, two, half, size, half, size),
+      quietSouthWest: differing(none, two, 0, half, 0, half),
+    };
+    target.dispose(); sky.dispose(); shell.dispose(); renderer.dispose();
+    return result;
+  });
+  expect(out.max).toBeGreaterThanOrEqual(4);
+  expect(out.northWest).toBeGreaterThan(300);
+  expect(out.southEast).toBeGreaterThan(300);
+  // The scene has ordinary cloud in it, and the quadrants holding no storm are left alone by them.
+  expect(out.cloudPresent).toBeGreaterThan(3000);
+  expect(out.quietNorthEast).toBeLessThan(out.northWest * .15);
+  expect(out.quietSouthWest).toBeLessThan(out.southEast * .15);
   expect(errors).toEqual([]);
 });

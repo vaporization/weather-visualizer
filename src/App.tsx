@@ -10,7 +10,7 @@ import ProviderKeys from './ProviderKeys';
 import Globe, { type GlobeAPI, type RenderStats } from './GlobeScene';
 import { hourlyIndex, buildAtmosphere, type AtmosphericGrid, type Station, type Quality } from './atmosphere';
 import { type GlobalWeather, type MapMode } from './weatherMap';
-import { atHour, description, formatCoord, getJSON, places, stormExtentKm, stormShape, stormQuadrantSummary, type Conditions, type Layers, type Location, type Storm, type Weather } from './weather';
+import { atHour, description, formatCoord, getJSON, places, stormShape, stormQuadrantSummary, type StormShape, type Conditions, type Layers, type Location, type Storm, type Weather } from './weather';
 const demoConditions: Conditions = { temperature_2m:28, relative_humidity_2m:94, apparent_temperature:33, is_day:1, precipitation:12, rain:12, snowfall:0, weather_code:95, cloud_cover:100, pressure_msl:950, wind_speed_10m:165, wind_direction_10m:75, wind_gusts_10m:210 };
 function WeatherIcon({ code=0, size=24 }: {code?:number;size?:number}) {
   const Icon=code>=95?CloudLightning:code>=71&&code<=77||code>=85&&code<=86?Snowflake:code>=61?CloudRain:code>=51?CloudDrizzle:code>=3?Cloud:Sun;
@@ -139,8 +139,21 @@ export default function App(){
     setPolygons([]);if(!selectedStorm)return;const c=new AbortController();setExtentStatus('Loading official wind extent...');
     getJSON<{polygons:number[][][]}>(`/api/storms/${selectedStorm.id}/extent`,c.signal).then(d=>{setPolygons(d.polygons);setExtentStatus(d.polygons.length?'Orange outline: NHC analyzed wind extent':'No wind-extent polygons available');}).catch(e=>{if(e.name!=='AbortError')setExtentStatus('Official wind extent unavailable');});return()=>c.abort();
   },[selectedStorm]);
-  const stormRadiusKm=useMemo(()=>stormExtentKm(selectedStorm,polygons),[selectedStorm,polygons]);
   const shape=useMemo(()=>stormShape(selectedStorm,polygons),[selectedStorm,polygons]);
+  // Wind radii for every active system, not just a selected one: a cyclone is part of the weather
+  // wherever you happen to be looking, so it has to be drawn without being asked for.
+  const [stormShapes,setStormShapes]=useState<StormShape[]>([]);
+  useEffect(()=>{
+    if(!storms.length){setStormShapes([]);return;}
+    const c=new AbortController();let cancelled=false;
+    void Promise.all(storms.map(async s=>{
+      try{const d=await getJSON<{polygons:number[][][]}>(`/api/storms/${s.id}/extent`,c.signal);return stormShape(s,d.polygons);}
+      catch{return stormShape(s,[]);}
+    })).then(list=>{if(!cancelled)setStormShapes(list.filter((x):x is StormShape=>!!x));});
+    return()=>{cancelled=true;c.abort();};
+  },[storms]);
+  // The hurricane study has no advisory behind it, so it states its own proportions.
+  const renderedStorms=useMemo(()=>demo?[{lat:location.lat,lon:location.lon,eyeKm:20,eyewallKm:48,shieldKm:240,quadrantsKm:[250,230,210,235] as [number,number,number,number],spin:location.lat>=0?1:-1 as 1|-1,intensityKt:120,motionDeg:0,shieldMeasured:false,eyewallMeasured:false}]:stormShapes,[demo,location.lat,location.lon,stormShapes]);
   const conditions=useMemo(()=>demo?demoConditions:weather?atHour(weather,hour):null,[demo,weather,hour]);
   const atmosphere=useMemo(()=>buildAtmosphere(demo?null:gridData,stations,conditions,weather?.current.time,hour,demo),[gridData,stations,conditions,weather,hour,demo]);
   const temp=(v:number|undefined)=>v==null?'—':Math.round(units==='C'?v:v*9/5+32);
@@ -158,7 +171,7 @@ export default function App(){
       </div>
       <div className="header-right"><details className="panel-menu"><summary>Panels</summary><div><label className="panel-opacity">Panel opacity <output>{panelOpacity}%</output><input aria-label="Panel opacity" type="range" min="0" max="100" step="1" value={panelOpacity} onChange={e=>setPanelOpacity(Number(e.target.value))}/></label><button onClick={()=>panelAction('minimize')}>Minimize all</button><button onClick={()=>panelAction('restore')}>Restore all</button><button onClick={()=>panelAction('reset')}>Reset layout</button></div></details><span className={`data-status ${demo||error||weather?._meta?.stale?'amber':''}`}><i/>{demo?'DEMO MODE':loading?'CONNECTING':error?'WEATHER UNAVAILABLE':weather?._meta?.stale?'CACHED MODEL':hour?'FORECAST':'LIVE MODEL'}</span><button className="icon-button" aria-label="About this experience" onClick={()=>setInfo(true)}><Info size={19}/></button></div>
     </header>
-    <Globe extraLayers={extraLayers} tornadoData={tornadoesOn?tornadoData:null} stormActive={!!selectedStorm&&!demo} stormRadiusKm={stormRadiusKm} stormShape={shape} radarOpacity={radarOpacity/100} onRadarStatus={setRadarStatus} horizonLevel={horizonLevel} onToggleHorizon={toggleHorizon} onCompassChange={setNorthAngle} northUp={northUp} flightData={flightsOn?flightData:null} gamepadEnabled={gamepadOn} streetData={demo?null:streetData} streetOptions={streetOptions} onTiltChange={setActualTilt} onLook={value=>{setCameraTilt(value);setTiltLocked(true);}} tiltLocked={tiltLocked} cameraTilt={cameraTilt} mapOpacity={mapOpacity / 100} globalWeather={globalWeather} mapMode={demo?'natural':mapMode} time={globalWeather?.fetchedAt} hour={hour} location={location} atmosphere={atmosphere} layers={layers} polygons={polygons} demo={demo} quality={quality} satellite={satellite && hour===0} onStats={setStats} onSelect={choose} onReady={v=>{api.current=v;}}/>
+    <Globe extraLayers={extraLayers} tornadoData={tornadoesOn?tornadoData:null} storms={renderedStorms} radarOpacity={radarOpacity/100} onRadarStatus={setRadarStatus} horizonLevel={horizonLevel} onToggleHorizon={toggleHorizon} onCompassChange={setNorthAngle} northUp={northUp} flightData={flightsOn?flightData:null} gamepadEnabled={gamepadOn} streetData={demo?null:streetData} streetOptions={streetOptions} onTiltChange={setActualTilt} onLook={value=>{setCameraTilt(value);setTiltLocked(true);}} tiltLocked={tiltLocked} cameraTilt={cameraTilt} mapOpacity={mapOpacity / 100} globalWeather={globalWeather} mapMode={demo?'natural':mapMode} time={globalWeather?.fetchedAt} hour={hour} location={location} atmosphere={atmosphere} layers={layers} polygons={polygons} demo={demo} quality={quality} satellite={satellite && hour===0} onStats={setStats} onSelect={choose} onReady={v=>{api.current=v;}}/>
     <section className="intro"><div className="eyebrow"><span className="tiny-line"/> YOUR PLANET. IN MOTION.</div><h1>Weather, with<br/><span>perspective.</span></h1><p>A living world. A closer look.</p></section>
     <aside className="weather-panel panel" aria-label="Selected location weather"><PanelChrome title="Local conditions"/>
       <div className="panel-kicker"><span><MapPin size={12}/> {demo?'SCENARIO':'LOCAL CONDITIONS'}</span><button className="unit-toggle" onClick={()=>setUnits(units==='C'?'F':'C')} aria-label="Toggle temperature units" aria-pressed={units==='F'} title="Switch Celsius / Fahrenheit"><span className={units==='C'?'active':''}>°C</span><span className={units==='F'?'active':''}>°F</span></button></div>
