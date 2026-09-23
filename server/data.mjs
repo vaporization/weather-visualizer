@@ -9,7 +9,14 @@ export async function cachedFetch(url, binary = false) {
   const work = (async () => {
   const response = await fetch(url, { signal: AbortSignal.timeout(25_000), headers: { 'User-Agent': 'AtmoWeatherGlobe/0.2' } });
   if (!response.ok) throw new Error(`Data provider returned ${response.status}`);
-  const data = response.status === 204 ? [] : binary ? new Uint8Array(await response.arrayBuffer()) : await response.json();
+  let data;
+  if (response.status === 204) data = [];
+  else if (binary) data = new Uint8Array(await response.arrayBuffer());
+  else {
+    // A provider under load can answer 200 with a plain-text complaint instead of JSON.
+    const text = await response.text();
+    try { data = JSON.parse(text); } catch { throw new Error(`Data provider returned ${text.slice(0, 80)}`); }
+  }
   if (cache.size > 200) cache.delete(cache.keys().next().value);
   cache.set(url, { time: Date.now(), data });
   return data;

@@ -55,11 +55,23 @@ export function registerAtmosphereRoutes(app) {
     try { p = coordinates(req.query); } catch (e) { return res.status(400).json({ error: e.message }); }
     try {
       const { points, widthKm } = regionalGrid(p.lat, p.lon);
-      const hourly = [...SURFACE_FIELDS, ...CLOUD_LEVELS.map(l => `cloud_cover_${l}hPa`), ...CLOUD_LEVELS.map(l => `geopotential_height_${l}hPa`)].join(',');
-      const params = new URLSearchParams({ latitude: points.map(p => p.lat.toFixed(4)).join(','), longitude: points.map(p => p.lon.toFixed(4)).join(','), hourly, forecast_hours: '26', cell_selection: 'nearest', timezone: 'GMT' });
-      const data = await cachedFetch(`https://api.open-meteo.com/v1/forecast?${params}`);
-      if (!Array.isArray(data) || data.length !== 25 || !data[12].hourly?.time?.length) throw new Error('Incomplete regional model data');
-      res.json({ widthKm, gridSize: 5, source: 'Open-Meteo', levels: CLOUD_LEVELS, points: points.map((p, i) => ({ ...p, elevation: data[i].elevation, hourly: data[i].hourly })) });
+      const query = fields => new URLSearchParams({ latitude: points.map(q => q.lat.toFixed(4)).join(','), longitude: points.map(q => q.lon.toFixed(4)).join(','), hourly: fields.join(','), forecast_hours: '26', cell_selection: 'nearest', timezone: 'GMT' });
+      const request = async fields => {
+        const data = await cachedFetch(`https://api.open-meteo.com/v1/forecast?${query(fields)}`);
+        if (!Array.isArray(data) || data.length !== 25 || !data[12].hourly?.time?.length) throw new Error('Incomplete regional model data');
+        return data;
+      };
+      // Asking for every pressure level is a much larger request than the surface fields alone, and
+      // the provider drops it when it is busy. Losing the column is worth far less than losing the
+      // whole regional grid, so a failure falls back to the surface fields and says which arrived.
+      let data, levels = CLOUD_LEVELS;
+      try {
+        data = await request([...SURFACE_FIELDS, ...CLOUD_LEVELS.map(l => `cloud_cover_${l}hPa`), ...CLOUD_LEVELS.map(l => `geopotential_height_${l}hPa`)]);
+      } catch {
+        data = await request(SURFACE_FIELDS);
+        levels = [];
+      }
+      res.json({ widthKm, gridSize: 5, source: 'Open-Meteo', levels, points: points.map((q, i) => ({ ...q, elevation: data[i].elevation, hourly: data[i].hourly })) });
     } catch { res.status(502).json({ error: 'Layered atmosphere unavailable. Using the selected point forecast.' }); }
   });
   app.get('/api/observations', async (req, res) => {

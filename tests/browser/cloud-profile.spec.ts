@@ -132,3 +132,67 @@ test('a deep column renders as a tall body and a shallow one stays low', async (
   expect(result.none.total).toBe(0);
   expect(errors).toEqual([]);
 });
+
+// The profile drives cloud from the model column, but the satellite view exists to show what was
+// observed. Letting the column win there silently emptied the satellite layer inside the region.
+test('observed satellite cloud still renders where a model column is available', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const THREE = await import('/node_modules/.vite/deps/three.js');
+    const { WeatherShell, globePoint, EARTH_KM } = await import('/src/weatherShell.ts');
+    const { buildAtmosphere } = await import('/src/atmosphere.ts');
+    const levels = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150];
+    const heights = [90, 766, 1500, 3145, 4415, 5878, 7614, 9739, 11019, 12514, 14316];
+    // A model column that is completely clear, so anything drawn has to have come from the satellite.
+    const hourly: Record<string, unknown[]> = { time: ['2026-09-22T12:00'], cloud_cover_low: [0], cloud_cover_mid: [0], cloud_cover_high: [0] };
+    levels.forEach((l, i) => { hourly['geopotential_height_' + l + 'hPa'] = [heights[i]]; hourly['cloud_cover_' + l + 'hPa'] = [0]; });
+    const grid = { gridSize: 5, widthKm: 160, levels, points: Array.from({ length: 25 }, () => ({ lat: 0, lon: 0, elevation: 0, hourly })) };
+    const size = 150;
+    const renderer = new THREE.WebGLRenderer({ antialias: false }); renderer.setSize(size, size);
+    const target = new THREE.WebGLRenderTarget(size, size);
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .0001, 80), shell = new WeatherShell();
+    scene.add(shell.mesh);
+    // A fully overcast observed field.
+    const pixels = new Uint8Array(4 * 4 * 4).fill(255);
+    const observed = new THREE.DataTexture(pixels, 4, 4);
+    observed.needsUpdate = true;
+    shell.setSatellite(observed);
+    // Close to the selection, where the regional column takes over completely: further out the box
+    // has no weight and the test would pass whatever the column does.
+    const eye = globePoint(0, -.12, 1 + 3 / EARTH_KM);
+    camera.position.copy(eye); camera.up.copy(globePoint(0, -.12, 1)).normalize();
+    camera.lookAt(globePoint(0, 0, 1 + 2 / EARTH_KM)); camera.updateMatrixWorld();
+    const u = shell.material.uniforms;
+    u.sun.value.set(1, .35, .2).normalize(); u.screenSize.value.set(size, size); u.steps.value = 144;
+    u.rainEnabled.value = 0; u.globalAvailable.value = 0;
+    const shoot = (satellite: number) => {
+      shell.setAtmosphere(buildAtmosphere(grid as never, [], null, '2026-09-22T12:00', 0), { lat: 0, lon: 0, name: 'x', region: 'x' }, false);
+      u.eye.value.copy(eye); u.satelliteEnabled.value = satellite; u.cloudEnabled.value = 1;
+      renderer.setRenderTarget(target); renderer.render(scene, camera);
+      const bytes = new Uint8Array(size * size * 4);
+      renderer.readRenderTargetPixels(target, 0, 0, size, size, bytes);
+      return bytes;
+    };
+    u.cloudEnabled.value = 0;
+    shell.setAtmosphere(buildAtmosphere(grid as never, [], null, '2026-09-22T12:00', 0), { lat: 0, lon: 0, name: 'x', region: 'x' }, false);
+    u.eye.value.copy(eye); u.satelliteEnabled.value = 1;
+    renderer.setRenderTarget(target); renderer.render(scene, camera);
+    const sky = new Uint8Array(size * size * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, size, size, sky);
+    const differing = (b: Uint8Array) => {
+      let n = 0;
+      for (let i = 0; i < b.length; i += 4) if (Math.abs(b[i] - sky[i]) + Math.abs(b[i + 1] - sky[i + 1]) + Math.abs(b[i + 2] - sky[i + 2]) > 28) n++;
+      return n;
+    };
+    const withSatellite = differing(shoot(1)), withoutSatellite = differing(shoot(0));
+    target.dispose(); observed.dispose(); shell.dispose(); renderer.dispose();
+    return { withSatellite, withoutSatellite };
+  });
+  // The model column is empty, so with the satellite off there is nothing to draw; with it on the
+  // observed overcast must still appear even though a profile is available for this location.
+  expect(result.withoutSatellite).toBeLessThan(200);
+  expect(result.withSatellite).toBeGreaterThan(2000);
+  expect(errors).toEqual([]);
+});

@@ -34,7 +34,8 @@ test('the funnel is anchored on the radar-identified cell, carried along its rep
 test('the funnel is a volume that answers to the warning it came from', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
-  page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 400)); });
+  // Shader and runtime errors matter here; an upstream provider returning 502 does not.
+  page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/i.test(m.text())) errors.push('console: ' + m.text().slice(0, 400)); });
   await page.goto('/');
   const out = await page.evaluate(async () => {
     const THREE = await import('/node_modules/.vite/deps/three.js');

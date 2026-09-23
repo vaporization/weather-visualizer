@@ -150,17 +150,38 @@ export class WeatherShell {
               float high=smoothstep(.70-c.b*.34,.84-c.b*.34,medium)*c.b*.24;
           return vec3(low,mid,high);
         }
+        // The advisory publishes wind radii per compass quadrant, so the storm's reach is interpolated
+        // around the compass instead of being averaged into one circle.
+        float stormReach(float bearing){
+          float t=bearing/(PI*.5);float i=floor(t);float f=t-i;f=f*f*(3.-2.*f);
+          return mix(stormQuadrants[int(mod(i,4.))],stormQuadrants[int(mod(i+1.,4.))],f);
+        }
         vec3 covers(vec3 p){
           vec2 uv=geoUV(p);float observed=textureLod(satelliteMap,uv,satelliteLod).a*satelliteEnabled;
           vec3 global=satelliteEnabled>.5 ? vec3(observed*.9,observed*.25,observed*.12) : textureLod(forecastCloudMap,uv,0.).rgb*globalAvailable;
           vec3 delta=p-center;vec2 xy=vec2(dot(delta,east),dot(delta,north));
           vec3 local=textureLod(weatherMap,xy/widthKm+.5,0.).rgb;
           if(demo>.5||stormEnabled>.5){
-            // Eyewall, rainbands and outer edge scale with the analyzed storm size.
-            float scale=max(.25,stormRadiusKm/220.);float r=length(xy);
-            float a=(atan(xy.y,xy.x)+r*.035/scale)*stormSpin;float spiral=.35+.65*pow(.5+.5*sin(a*3.),2.);
-            float mask=smoothstep(12.*scale,23.*scale,r)*(1.-smoothstep(170.*scale,230.*scale,r));
-            local=vec3(spiral*mask,.22*mask,.1*mask);return mix(global,local,1.-smoothstep(210.*scale,250.*scale,r));
+            // Seen from orbit the storm is the same body the close view draws, flattened: an eye, an
+            // eyewall, logarithmic rainbands and a cirrus canopy, reaching as far as the advisory says
+            // in each quadrant. Noise breaks the banding up so it reads as cloud, not as a drawn spiral.
+            float r=length(xy);
+            float bearing=mod(atan(xy.x,xy.y),2.*PI);
+            float reach=stormReach(bearing);
+            float eye=stormEyeKm,wall=stormEyewallKm;
+            float twist=log(max(r,eye)/max(eye,1.))*2.6;
+            float bands=.38+.62*pow(.5+.5*sin((bearing*stormSpin-twist+clock*.02*stormSpin)*2.),1.5);
+            float wallBand=exp(-pow((r-wall*1.3)/max(9.,wall*.85),2.));
+            float outer=1.-smoothstep(reach*.70,reach*1.08,r);
+            float clear=smoothstep(eye*.85,eye*1.15,r);
+            vec3 q=normalize(p)*R*.02;
+            float grain=textureLod(noiseMap,q,1.).r*.45+textureLod(noiseMap,q*3.1+vec3(.3,.7,.1),2.).g*.55;
+            float amount=clamp((wallBand*1.25+bands*outer*.85)*clear,0.,1.);
+            amount=clamp(amount*(.45+.9*grain),0.,1.);
+            float canopy=(1.-smoothstep(reach*.88,reach*1.12,r))*clear*.6*(.55+.6*grain);
+            amount=max(amount,canopy);
+            local=vec3(amount,amount*.34,amount*.2);
+            return mix(global,local,1.-smoothstep(reach*1.05,reach*1.35,r));
           }
           return satelliteEnabled>.5 ? global : forecastFormation(p,global);
         }
@@ -195,12 +216,6 @@ ${SHAPED_CLOUD_GLSL}
           if(cover<.02)return 0.;
           return shapedCloud(normalize(p-shear*max(0.,h-1.))*(R+h*.22),cover,.014,sampleFootprint);
         }
-        // The advisory publishes wind radii per compass quadrant, so the storm's reach is interpolated
-        // around the compass instead of being averaged into one circle.
-        float stormReach(float bearing){
-          float t=bearing/(PI*.5);float i=floor(t);float f=t-i;f=f*f*(3.-2.*f);
-          return mix(stormQuadrants[int(mod(i,4.))],stormQuadrants[int(mod(i+1.,4.))],f);
-        }
         // A tropical cyclone with height. The eyewall leans outward as it rises, so the eye is a slanted
         // funnel rather than a hole punched through a flat disc; rainbands follow a logarithmic spiral,
         // which is the shape they actually take; and a cirrus canopy spreads over the top, which is most
@@ -233,10 +248,11 @@ ${SHAPED_CLOUD_GLSL}
         float density(vec3 p){
           float h=length(p)-R;if(h<.08||h>16.||cloudEnabled<.5)return 0.;
           // Inside the regional box the model's column replaces the fixed slabs. The hurricane study
-          // and an analyzed storm keep their own structure, so they opt out.
+          // and an analyzed storm keep their own structure, so they opt out; so does the satellite view,
+          // where the point is to show what was observed rather than what the model has.
           float synthetic=max(demo,stormEnabled);
           if(synthetic>.5)return stormDensity(p,h);
-          float blend=profileAvailable*regionalWeight(p);
+          float blend=profileAvailable*regionalWeight(p)*(1.-step(.5,satelliteEnabled));
           if(blend>=.999)return columnDensity(p,h);
           vec3 coverage=covers(p);float w=regionalWeight(p)*max(demo,stormEnabled);
           float base=mix(1.15,lowBase+terrainHeight,w),deep=mix(3.1,thickness,w);

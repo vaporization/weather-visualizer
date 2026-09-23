@@ -34,7 +34,10 @@ export function funnelShape(warning: TornadoWarning) {
   return { topRadiusKm, footRadiusKm: .07 + threat * .16, debrisRadiusKm: .45 + threat * .6, strength: warning.observed ? 1 : .55 };
 }
 
-const BOX_HALF_WIDTH_KM = 2.2, MAX_HEIGHT_KM = 3.4;
+// The funnel is carried a little below its anchor so it always meets the ground: the elevation the
+// funnel is placed at and the displaced terrain actually drawn can differ by tens of metres, and a
+// funnel hanging in the air is worse than one whose foot is buried and hidden by the depth test.
+const BOX_HALF_WIDTH_KM = 2.2, MAX_HEIGHT_KM = 3.4, BURY_KM = .22;
 
 export class TornadoLayer {
   readonly group = new THREE.Group();
@@ -47,7 +50,7 @@ export class TornadoLayer {
   // One box per warning, raymarched in its own object space where a unit is a kilometre. The cloud
   // shell's steps are kilometres apart at this range and would step straight over a funnel, so the
   // funnel gets its own short march while sharing the shell's noise and shaping.
-  private geometry = new THREE.BoxGeometry(BOX_HALF_WIDTH_KM * 2, MAX_HEIGHT_KM, BOX_HALF_WIDTH_KM * 2).translate(0, MAX_HEIGHT_KM / 2, 0);
+  private geometry = new THREE.BoxGeometry(BOX_HALF_WIDTH_KM * 2, MAX_HEIGHT_KM + BURY_KM, BOX_HALF_WIDTH_KM * 2).translate(0, (MAX_HEIGHT_KM - BURY_KM) / 2, 0);
   private makeMaterial(shape: ReturnType<typeof funnelShape>, spin: number) {
     const uniforms = {
       noiseMap: { value: cloudNoise() }, clock: this.clock, sun: { value: new THREE.Vector3(0, 1, 0) }, baseKm: this.baseKm,
@@ -81,15 +84,18 @@ export class TornadoLayer {
         // core and falling away as 1/r outside -- and drags a debris cloud around its foot.
         float funnel(vec3 q){
           float top=min(baseKm,${MAX_HEIGHT_KM.toFixed(2)});
-          if(q.y<0.||q.y>top)return 0.;
-          float t=q.y/top;
+          if(q.y<-${BURY_KM.toFixed(2)}||q.y>top)return 0.;
+          float t=clamp(q.y,0.,top)/top;
           float radius=mix(footRadiusKm,topRadiusKm,pow(t,.55));
           float r=length(q.xz);
-          if(r>debrisRadiusKm*1.6)return 0.;
+          if(r>debrisRadiusKm*1.9)return 0.;
           float body=1.-smoothstep(radius*.5,radius*1.2,r);
-          float debris=(1.-smoothstep(.02,.16,q.y))*(1.-smoothstep(debrisRadiusKm*.35,debrisRadiusKm,r));
+          // The circulation at the ground is wider than the condensation funnel above it: a skirt of
+          // lofted debris, thickest at the surface, is what actually marks the point of contact.
+          // Peaked just above the surface rather than at it, so the ground does not swallow the skirt.
+          float skirt=smoothstep(-${BURY_KM.toFixed(2)},.05,q.y)*(1.-smoothstep(.08,.42,q.y))*(1.-smoothstep(debrisRadiusKm*.28,debrisRadiusKm*1.2,r));
           float flare=smoothstep(.9,1.,t);
-          float cover=clamp(max(body,debris*.75)+flare*.35*(1.-smoothstep(topRadiusKm,topRadiusKm*2.2,r)),0.,1.)*strength;
+          float cover=clamp(max(body,skirt*.9)+flare*.35*(1.-smoothstep(topRadiusKm,topRadiusKm*2.2,r)),0.,1.)*strength;
           if(cover<.02)return 0.;
           float omega=r<radius?1.:radius/max(r,1e-4);
           float swirl=clock*omega*3.2*spin-t*4.2;
@@ -100,7 +106,7 @@ export class TornadoLayer {
         void main(){
           #include <logdepthbuf_fragment>
           vec3 ro=eyeLocal, rd=normalize(vLocal-eyeLocal);
-          vec3 lo=vec3(-${BOX_HALF_WIDTH_KM.toFixed(2)},0.,-${BOX_HALF_WIDTH_KM.toFixed(2)});
+          vec3 lo=vec3(-${BOX_HALF_WIDTH_KM.toFixed(2)},-${BURY_KM.toFixed(2)},-${BOX_HALF_WIDTH_KM.toFixed(2)});
           vec3 hi=vec3(${BOX_HALF_WIDTH_KM.toFixed(2)},min(baseKm,${MAX_HEIGHT_KM.toFixed(2)}),${BOX_HALF_WIDTH_KM.toFixed(2)});
           vec3 ta=(lo-ro)/rd, tb=(hi-ro)/rd;
           vec3 tn=min(ta,tb), tf=max(ta,tb);
@@ -121,7 +127,7 @@ export class TornadoLayer {
               float lit=exp(-shade*2.1);
               vec3 col=mix(vec3(.10,.10,.12),vec3(.78,.78,.82),lit);
               // Debris near the ground is dirt, not condensate.
-              col=mix(vec3(.30,.26,.21),col,smoothstep(.02,.28,p.y));
+              col=mix(vec3(.33,.28,.22),col,smoothstep(.01,.40,p.y));
               float alpha=1.-exp(-d*(span/64.)*9.);
               acc.rgb+=(1.-acc.a)*col*alpha; acc.a+=(1.-acc.a)*alpha;
               if(acc.a>.985)break;
