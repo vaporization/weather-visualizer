@@ -382,7 +382,9 @@ export default function GlobeScene(props: Props) {
       grid.visible = latest.current.layers.grid && altitude > 150; stars.visible = altitude > 100;
       marker.scale.setScalar(Math.max(.00004, Math.min(1, camera.position.distanceTo(marker.position) * .5))); marker.visible = altitude > 20;
       particles.update(camera, latest.current.location, latest.current.atmosphere, latest.current.layers, reduced ? 0 : now / 1000);
-      tornadoes.update(terrain, altitude, reduced ? 0 : now / 1000);
+      tornadoes.setSun(shell.material.uniforms.sun.value as THREE.Vector3);
+      tornadoes.setCloudBase(latest.current.atmosphere.baseKm + latest.current.atmosphere.elevationKm);
+      tornadoes.update(terrain, altitude, reduced ? 0 : now / 1000, camera);
       for (const layer of dataLayers.values()) layer.update({ camera, terrain, altitudeKm: altitude, seconds: reduced ? 0 : now / 1000, now: Date.now() });
       followPinned();
       terrain.advance(reduced ? 1 : dt);

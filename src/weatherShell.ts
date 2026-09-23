@@ -9,6 +9,9 @@ export function globePoint(lat: number, lon: number, radius = 1) {
   return new THREE.Vector3(Math.cos(a) * Math.cos(b), Math.sin(a), -Math.cos(a) * Math.sin(b)).multiplyScalar(radius);
 }
 
+let sharedNoise: THREE.Data3DTexture | null = null;
+// Every cloud-like material samples the same cube, so they cannot drift apart in appearance.
+export function cloudNoise() { return sharedNoise ??= noiseVolume(); }
 function noiseVolume() {
   const size = 64, data = new Uint8Array(size ** 3 * 4);
   const hash = (x: number, y: number, z: number, n: number) => {
@@ -54,10 +57,35 @@ function redVolume(data: Uint8Array, width: number, height: number, depth: numbe
   texture.unpackAlignment = 1; texture.needsUpdate = true;
   return texture;
 }
+// Shared so a tornado funnel is drawn from the same material as the cloud it hangs from.
+export const SHAPED_CLOUD_GLSL = `
+  // One cloud material for everything that is drawn as cloud. It turns a coverage fraction into
+  // eroded, billowing density using the same noise at the same scales, so a storm's eyewall and an
+  // ordinary afternoon sky are visibly made of the same stuff. The noise cube repeats over texture
+  // coordinates rather than its 64 cells: the value channels carry features across a quarter of it
+  // and the cellular channel across an eighth, which is where the scales below come from.
+  float shapedCloud(vec3 column,float cover,float cellScale,float footprint){
+    mat3 rotation=mat3(.36,-.8,.48,.8,.0,-.6,.48,.6,.64);
+    vec3 q=column*cellScale;
+    float lod=max(0.,log2(max(.001,footprint*cellScale*64.)));
+    vec3 warp=textureLod(noiseMap,rotation*q*.35,max(0.,lod-2.)).rgb-.5;
+    float broad=textureLod(noiseMap,q*.4+warp*.2,max(0.,lod-1.)).r;
+    float cell=textureLod(noiseMap,q+warp*.35,lod).g;
+    // Higher cover lets more of the pattern through, so an overcast level fills in and a broken
+    // one stays in separate cells.
+    float d=smoothstep(.10,.38,cell*.58+broad*.42-(1.-cover)*.40)*cover;
+    if(d<=0.)return 0.;
+    // Erosion at two scales breaks the silhouette so cloud billows instead of reading as a slab.
+    float coarse=.083,fine=.104;
+    float chew=textureLod(noiseMap,rotation*column*coarse,max(0.,log2(max(.001,footprint*coarse*64.)))).r;
+    float grain=textureLod(noiseMap,column*fine,max(0.,log2(max(.001,footprint*fine*64.))+1.)).b;
+    return max(0.,d-(1.-chew)*.38*(1.-d)-(1.-grain)*.14*(1.-d))*1.9;
+  }
+`;
 export class WeatherShell {
   readonly mesh: THREE.Mesh;
   readonly material: THREE.ShaderMaterial;
-  private noise = noiseVolume();
+  private noise = cloudNoise();
   private field = new THREE.DataTexture(new Uint8Array(100), 5, 5);
   private forecastClouds: THREE.Texture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
   private radar: THREE.Texture = new THREE.DataTexture(new Uint8Array(4),1,1);
@@ -158,35 +186,14 @@ export class WeatherShell {
           vec3 delta=p-center;vec2 xy=vec2(dot(delta,east),dot(delta,north));
           return textureLod(profileMap,vec3(xy/widthKm+.5,clamp(h/profileTopKm,0.,1.)),0.).r;
         }
-        // One cloud material for everything that is drawn as cloud. It turns a coverage fraction into
-        // eroded, billowing density using the same noise at the same scales, so a storm's eyewall and an
-        // ordinary afternoon sky are visibly made of the same stuff. The noise cube repeats over texture
-        // coordinates rather than its 64 cells: the value channels carry features across a quarter of it
-        // and the cellular channel across an eighth, which is where the scales below come from.
-        float shapedCloud(vec3 column,float cover,float cellScale){
-          mat3 rotation=mat3(.36,-.8,.48,.8,.0,-.6,.48,.6,.64);
-          vec3 q=column*cellScale;
-          float lod=max(0.,log2(max(.001,sampleFootprint*cellScale*64.)));
-          vec3 warp=textureLod(noiseMap,rotation*q*.35,max(0.,lod-2.)).rgb-.5;
-          float broad=textureLod(noiseMap,q*.4+warp*.2,max(0.,lod-1.)).r;
-          float cell=textureLod(noiseMap,q+warp*.35,lod).g;
-          // Higher cover lets more of the pattern through, so an overcast level fills in and a broken
-          // one stays in separate cells.
-          float d=smoothstep(.10,.38,cell*.58+broad*.42-(1.-cover)*.40)*cover;
-          if(d<=0.)return 0.;
-          // Erosion at two scales breaks the silhouette so cloud billows instead of reading as a slab.
-          float coarse=.083,fine=.104;
-          float chew=textureLod(noiseMap,rotation*column*coarse,max(0.,log2(max(.001,sampleFootprint*coarse*64.)))).r;
-          float grain=textureLod(noiseMap,column*fine,max(0.,log2(max(.001,sampleFootprint*fine*64.))+1.)).b;
-          return max(0.,d-(1.-chew)*.38*(1.-d)-(1.-grain)*.14*(1.-d))*1.9;
-        }
+${SHAPED_CLOUD_GLSL}
         // A convective column, about 9 km wide gathered into clusters about 45 km across. The pattern is
         // stretched vertically rather than extruded, so a tower stays one body from base to anvil while
         // still changing as it rises, and deep-layer shear leans it downwind as it climbs.
         float columnDensity(vec3 p,float h){
           float cover=profileCover(p,h);
           if(cover<.02)return 0.;
-          return shapedCloud(normalize(p-shear*max(0.,h-1.))*(R+h*.22),cover,.014);
+          return shapedCloud(normalize(p-shear*max(0.,h-1.))*(R+h*.22),cover,.014,sampleFootprint);
         }
         // The advisory publishes wind radii per compass quadrant, so the storm's reach is interpolated
         // around the compass instead of being averaged into one circle.
@@ -221,7 +228,7 @@ export class WeatherShell {
           float spin=clock*.014*stormSpin*(1.-smoothstep(eye,reach*1.2,r));
           float cs=cos(spin),sn=sin(spin);
           vec2 turned=vec2(xy.x*cs-xy.y*sn,xy.x*sn+xy.y*cs);
-          return shapedCloud(center+east*turned.x+north*turned.y+normalize(p)*h*14.,amount,.02);
+          return shapedCloud(center+east*turned.x+north*turned.y+normalize(p)*h*14.,amount,.02,sampleFootprint);
         }
         float density(vec3 p){
           float h=length(p)-R;if(h<.08||h>16.||cloudEnabled<.5)return 0.;
@@ -403,5 +410,5 @@ export class WeatherShell {
   setRadar(texture:THREE.Texture,bounds:THREE.Vector4[]){this.radar.dispose();this.radar=texture;this.material.uniforms.radarMap.value=texture;this.material.uniforms.radarBounds.value=bounds;this.material.uniforms.radarEnabled.value=1;}
   setSatellite(texture: THREE.Texture) { this.satellite.dispose(); this.satellite = texture; this.material.uniforms.satelliteMap.value = texture; }
   setQuality(q: Quality) { this.material.uniforms.steps.value = q === 'ultra' ? 144 : q === 'high' ? 96 : 64; }
-  dispose() { this.profile.dispose(); this.radar.dispose(); this.forecastClouds.dispose(); this.noise.dispose(); this.global.dispose(); this.field.dispose(); this.satellite.dispose(); this.material.dispose(); this.mesh.geometry.dispose(); }
+  dispose() { this.profile.dispose(); this.radar.dispose(); this.forecastClouds.dispose(); this.global.dispose(); this.field.dispose(); this.satellite.dispose(); this.material.dispose(); this.mesh.geometry.dispose(); }
 }
