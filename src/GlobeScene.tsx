@@ -5,7 +5,7 @@ import { StreetOverlay, type StreetData, type StreetOptions } from './StreetOver
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { type Layers, type Location, places } from './weather';
+import { type Layers, type Location, type StormShape, places } from './weather';
 import { type AtmosphereState, type Quality, solarDirection } from './atmosphere';
 import { EARTH_KM, globePoint, WeatherShell } from './weatherShell';
 import { Terrain } from './terrain';
@@ -21,7 +21,7 @@ import { flightPosition } from './flights';
 
 export type GlobeAPI = { zoom: (factor: number) => void; reset: () => void; focus: () => void; streets: () => void };
 export type RenderStats = { fps: number; tiltPercent: number; altitudeKm: number; gpu: string; terrain: string; satellite: string };
-type Props = { radarOpacity:number; onRadarStatus:(status:string)=>void; horizonLevel: boolean; onToggleHorizon: () => void; onCompassChange: (angle: number | null) => void; northUp: boolean; flightData: FlightData | null; gamepadEnabled: boolean; streetData: StreetData | null; streetOptions: StreetOptions; onTiltChange: (tilt: number) => void; onLook: (tilt: number) => void; tiltLocked: boolean; cameraTilt: number; mapOpacity: number; globalWeather: GlobalWeather | null; mapMode: MapMode; time?: string; hour: number; location: Location; atmosphere: AtmosphereState; layers: Layers; polygons: number[][][]; demo: boolean; stormActive: boolean; stormRadiusKm: number; tornadoData: TornadoData | null; extraLayers: Record<string, unknown>; quality: Quality; satellite: boolean; onSelect: (p: Location) => void; onReady: (api: GlobeAPI) => void; onStats: (stats: RenderStats) => void };
+type Props = { radarOpacity:number; onRadarStatus:(status:string)=>void; horizonLevel: boolean; onToggleHorizon: () => void; onCompassChange: (angle: number | null) => void; northUp: boolean; flightData: FlightData | null; gamepadEnabled: boolean; streetData: StreetData | null; streetOptions: StreetOptions; onTiltChange: (tilt: number) => void; onLook: (tilt: number) => void; tiltLocked: boolean; cameraTilt: number; mapOpacity: number; globalWeather: GlobalWeather | null; mapMode: MapMode; time?: string; hour: number; location: Location; atmosphere: AtmosphereState; layers: Layers; polygons: number[][][]; demo: boolean; stormActive: boolean; stormRadiusKm: number; stormShape: StormShape | null; tornadoData: TornadoData | null; extraLayers: Record<string, unknown>; quality: Quality; satellite: boolean; onSelect: (p: Location) => void; onReady: (api: GlobeAPI) => void; onStats: (stats: RenderStats) => void };
 function coordinates(p: THREE.Vector3): Location { const n = p.clone().normalize(); return { lat: Math.asin(n.y) * 180 / Math.PI, lon: Math.atan2(-n.z, n.x) * 180 / Math.PI, name: 'Selected location', region: 'Earth · geographic selection' }; }
 function dispose(group: THREE.Object3D) { group.traverse(obj => { const m = obj as THREE.Mesh; m.geometry?.dispose(); if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach(mat => mat.dispose()); }); }
 function sunGlow() {
@@ -430,7 +430,7 @@ export default function GlobeScene(props: Props) {
   useEffect(() => {
     const s = state.current; if (!s) return;
     s.shell.setAtmosphere(props.atmosphere, props.location, props.demo);
-    s.shell.setStorm(props.stormActive, props.stormRadiusKm);
+    s.shell.setStorm(props.stormActive, props.stormRadiusKm, props.stormShape ?? null);
     s.shell.material.uniforms.cloudEnabled.value = props.layers.clouds ? 1 : 0; s.shell.material.uniforms.rainEnabled.value = props.layers.precipitation ? 1 : 0; s.shell.material.uniforms.satelliteEnabled.value = props.satellite ? 1 : 0;
     const normal = globePoint(props.location.lat, props.location.lon), east = new THREE.Vector3(-Math.sin(props.location.lon * Math.PI / 180), 0, -Math.cos(props.location.lon * Math.PI / 180)), north = normal.clone().cross(east);
     const solar = props.demo ? [.4, .7, .4] : solarDirection(props.location, props.time ? new Date(Date.parse(props.time.endsWith('Z') ? props.time : props.time + 'Z') + props.hour * 3600000).toISOString() : undefined);
@@ -440,7 +440,7 @@ export default function GlobeScene(props: Props) {
     // The regional field only describes real conditions; synthetic studies cast no shade.
     const realClouds = props.layers.clouds && !props.demo && !props.stormActive && !props.satellite && !props.atmosphere.source.startsWith('Waiting');
     s.terrain.setCloudShadow(s.shell.material.uniforms.weatherMap.value, s.shell.material.uniforms.center.value, east, north, light, props.atmosphere.widthKm, props.atmosphere.baseKm, realClouds);
-  }, [props.atmosphere, props.location, props.layers, props.demo, props.stormActive, props.stormRadiusKm, props.satellite, props.time, props.hour]);
+  }, [props.atmosphere, props.location, props.layers, props.demo, props.stormActive, props.stormRadiusKm, props.stormShape, props.satellite, props.time, props.hour]);
   useEffect(() => {
     const s = state.current; if (!s) return;
     s.shell.material.uniforms.mapMode.value = ['natural', 'precipitation', 'wind', 'temperature'].indexOf(props.mapMode);
