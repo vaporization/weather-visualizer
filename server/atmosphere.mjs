@@ -66,7 +66,18 @@ export function registerAtmosphereRoutes(app) {
       // whole regional grid, so a failure falls back to the surface fields and says which arrived.
       let data, levels = CLOUD_LEVELS;
       try {
-        data = await request([...SURFACE_FIELDS, ...CLOUD_LEVELS.map(l => `cloud_cover_${l}hPa`), ...CLOUD_LEVELS.map(l => `geopotential_height_${l}hPa`)]);
+        // The height of a pressure surface shifts by tens of metres across a box this size, far less
+        // than one altitude bin, so it is fetched once for the centre and shared. Asking all
+        // twenty-five points for it would be a third of the request for no resolution gained.
+        const heightFields = CLOUD_LEVELS.map(l => `geopotential_height_${l}hPa`);
+        const [grid, centre] = await Promise.all([
+          request([...SURFACE_FIELDS, ...CLOUD_LEVELS.map(l => `cloud_cover_${l}hPa`)]),
+          cachedFetch(`https://api.open-meteo.com/v1/forecast?${new URLSearchParams({ latitude: p.lat.toFixed(4), longitude: p.lon.toFixed(4), hourly: heightFields.join(','), forecast_hours: '26', cell_selection: 'nearest', timezone: 'GMT' })}`),
+        ]);
+        const shared = centre?.hourly;
+        if (!shared || heightFields.some(f => !Array.isArray(shared[f]))) throw new Error('Missing level heights');
+        for (const point of grid) for (const field of heightFields) point.hourly[field] = shared[field];
+        data = grid;
       } catch {
         data = await request(SURFACE_FIELDS);
         levels = [];
