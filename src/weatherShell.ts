@@ -45,6 +45,15 @@ function noiseVolume() {
   return texture;
 }
 
+// A single-channel volume texture, filtered and clamped so edge bins do not wrap into each other.
+function redVolume(data: Uint8Array, width: number, height: number, depth: number) {
+  const texture = new THREE.Data3DTexture(data, width, height, depth);
+  texture.format = THREE.RedFormat; texture.type = THREE.UnsignedByteType;
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = texture.wrapR = THREE.ClampToEdgeWrapping;
+  texture.unpackAlignment = 1; texture.needsUpdate = true;
+  return texture;
+}
 export class WeatherShell {
   readonly mesh: THREE.Mesh;
   readonly material: THREE.ShaderMaterial;
@@ -54,6 +63,7 @@ export class WeatherShell {
   private radar: THREE.Texture = new THREE.DataTexture(new Uint8Array(4),1,1);
   private global: THREE.Texture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
   private satellite: THREE.Texture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+  private profile = redVolume(new Uint8Array(1), 1, 1, 1);
   constructor() {
     this.field.minFilter = this.field.magFilter = THREE.LinearFilter; this.field.needsUpdate = true; this.satellite.needsUpdate = true; this.radar.needsUpdate=true;
     this.material = new THREE.ShaderMaterial({
@@ -67,6 +77,7 @@ export class WeatherShell {
         lowBase: { value: 1.2 }, thickness: { value: 2.5 }, widthKm: { value: 160 }, terrainHeight: { value: 0 },
         wind: { value: new THREE.Vector3() }, clock: { value: 0 }, cloudEnabled: { value: 1 }, satelliteEnabled: { value: 1 }, regionalEnabled: { value: 0 }, satelliteLod: { value: 0 }, demo: { value: 0 },
         stormEnabled: { value: 0 }, stormRadiusKm: { value: 220 },
+        profileMap: { value: this.profile }, profileAvailable: { value: 0 }, profileTopKm: { value: 16 }, shear: { value: new THREE.Vector3() },
         rainEnabled: { value: 1 }, rainRate: { value: 0 }, snowRate: { value: 0 }, visibilityKm: { value: 50 }, steps: { value: 96 },
       },
       vertexShader: `out vec3 worldPoint; void main(){vec4 p=modelMatrix*vec4(position,1.);worldPoint=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
@@ -81,6 +92,7 @@ export class WeatherShell {
         uniform vec3 eye, sun, center, east, north, wind;
         uniform float satelliteLod, lowBase, thickness, widthKm, terrainHeight, clock, cloudEnabled, satelliteEnabled, regionalEnabled, demo, rainEnabled, rainRate, snowRate, visibilityKm;
         uniform float stormEnabled, stormRadiusKm;
+        uniform sampler3D profileMap; uniform float profileAvailable, profileTopKm; uniform vec3 shear;
         uniform int steps;
         out vec4 outColor;
         const float R=6371.; const float PI=3.14159265;
@@ -138,14 +150,52 @@ export class WeatherShell {
           float d=smoothstep(.20,.42,body)*profile*macro;
           return max(0.,d-(1.-detail)*.14*(1.-d))*1.8;
         }
+        // Model cloud cover at this point's true altitude, read from the resampled column. Bin centres
+        // line up with altitude/profileTopKm, so the lookup needs no offset.
+        float profileCover(vec3 p,float h){
+          vec3 delta=p-center;vec2 xy=vec2(dot(delta,east),dot(delta,north));
+          return textureLod(profileMap,vec3(xy/widthKm+.5,clamp(h/profileTopKm,0.,1.)),0.).r;
+        }
+        // A convective column. The noise cube repeats over texture coordinates, not over its 64 cells:
+        // the value channels carry features across a quarter of it and the cellular channel across an
+        // eighth, so the scales below work out to cells about 9 km wide gathered into clusters about
+        // 45 km across, which is the size convection actually organises into. The pattern is stretched
+        // vertically rather than extruded, so a tower stays one body from base to anvil while still
+        // changing as it rises, and deep-layer shear leans it downwind as it climbs.
+        float columnDensity(vec3 p,float h){
+          float cover=profileCover(p,h);
+          if(cover<.02)return 0.;
+          mat3 rotation=mat3(.36,-.8,.48,.8,.0,-.6,.48,.6,.64);
+          vec3 column=normalize(p-shear*max(0.,h-1.))*(R+h*.22);
+          float scale=.014;
+          vec3 q=column*scale;
+          float lod=max(0.,log2(max(.001,sampleFootprint*scale*64.)));
+          vec3 warp=textureLod(noiseMap,rotation*q*.35,max(0.,lod-2.)).rgb-.5;
+          float broad=textureLod(noiseMap,q*.4+warp*.2,max(0.,lod-1.)).r;
+          float cell=textureLod(noiseMap,q+warp*.35,lod).g;
+          // Higher cover lets more of the pattern through, so an overcast level fills in and a broken
+          // one stays in separate cells; an anvil widens because the model says cover is higher there.
+          float d=smoothstep(.10,.38,cell*.58+broad*.42-(1.-cover)*.40)*cover;
+          if(d<=0.)return 0.;
+          // Erosion at two scales breaks the silhouette so a tower billows instead of reading as a slab.
+          float coarse=.083,fine=.104;
+          float chew=textureLod(noiseMap,rotation*column*coarse,max(0.,log2(max(.001,sampleFootprint*coarse*64.)))).r;
+          float grain=textureLod(noiseMap,column*fine,max(0.,log2(max(.001,sampleFootprint*fine*64.))+1.)).b;
+          return max(0.,d-(1.-chew)*.38*(1.-d)-(1.-grain)*.14*(1.-d))*1.9;
+        }
         float density(vec3 p){
-          float h=length(p)-R;if(h<.08||h>14.||cloudEnabled<.5)return 0.;
+          float h=length(p)-R;if(h<.08||h>16.||cloudEnabled<.5)return 0.;
+          // Inside the regional box the model's column replaces the fixed slabs. The hurricane study
+          // and an analyzed storm keep their own structure, so they opt out.
+          float blend=profileAvailable*regionalWeight(p)*(1.-max(demo,stormEnabled));
+          if(blend>=.999)return columnDensity(p,h);
           vec3 coverage=covers(p);float w=regionalWeight(p)*max(demo,stormEnabled);
           float base=mix(1.15,lowBase+terrainHeight,w),deep=mix(3.1,thickness,w);
           float low=cloudLayer(p,h,base,deep,coverage.r,.045);
           float mid=cloudLayer(p,h,max(4.8,base+deep+.3),1.4,coverage.g,.022)*.52;
           float high=cloudLayer(p*vec3(1.,.42,1.),h,10.,1.1,coverage.b,.018)*.15;
-          return low+mid+high;
+          float slabs=low+mid+high;
+          return blend<=.001 ? slabs : mix(slabs,columnDensity(p,h),blend);
         }
         float lightDepth(vec3 p){float sum=0.;float stride=.16;float travel=.08;for(int j=0;j<5;j++){sum+=density(p+sun*travel)*stride;travel+=stride;stride*=1.8;}return sum;}
         void main(){
@@ -181,7 +231,7 @@ export class WeatherShell {
           vec3 sky=mix(vec3(.012,.023,.055),mix(vec3(.045,.16,.42),vec3(.40,.55,.73),pow(1.-abs(dot(ray,normalize(origin))),6.))*rayleigh,daylight);
           sky+=vec3(1.,.74,.42)*pow(max(0.,mu),24.)*.15*daylight;
           vec4 result=vec4(0.);
-          vec2 cloud=sphere(origin,ray,R+14.);
+          vec2 cloud=sphere(origin,ray,R+16.);
           float begin=max(max(cloud.x,0.),start),end=min(cloud.y,stop);
           // Keep the full visible cloud shell at every altitude; a near-camera
           // distance cap clips horizon clouds before the ray reaches them.
@@ -281,6 +331,19 @@ export class WeatherShell {
     u.lowBase.value = a.baseKm; u.thickness.value = a.thicknessKm; u.terrainHeight.value = a.elevationKm;
     u.widthKm.value = a.widthKm; u.rainRate.value = a.rain; u.snowRate.value = a.snow; u.visibilityKm.value = a.visibilityKm;
     u.regionalEnabled.value = a.source.startsWith('Waiting') ? 0 : 1; u.demo.value = demo ? 1 : 0;
+    this.setProfile(a);
+  }
+  // The column is a 5 x 5 grid of altitude bins; it is small enough to re-upload whenever it changes.
+  private setProfile(a: AtmosphereState) {
+    const u = this.material.uniforms;
+    if (this.profile.image.depth !== a.profileBins) {
+      this.profile.dispose();
+      this.profile = redVolume(new Uint8Array(25 * a.profileBins), 5, 5, a.profileBins);
+    }
+    (this.profile.image.data as Uint8Array).set(a.profile); this.profile.needsUpdate = true;
+    u.profileMap.value = this.profile; u.profileTopKm.value = a.profileTopKm;
+    u.profileAvailable.value = a.profileAvailable ? 1 : 0;
+    u.shear.value.copy(u.east.value).multiplyScalar(a.shear[0]).addScaledVector(u.north.value, a.shear[1]);
   }
   setStorm(active: boolean, radiusKm: number) {
     this.material.uniforms.stormEnabled.value = active ? 1 : 0;
@@ -291,5 +354,5 @@ export class WeatherShell {
   setRadar(texture:THREE.Texture,bounds:THREE.Vector4[]){this.radar.dispose();this.radar=texture;this.material.uniforms.radarMap.value=texture;this.material.uniforms.radarBounds.value=bounds;this.material.uniforms.radarEnabled.value=1;}
   setSatellite(texture: THREE.Texture) { this.satellite.dispose(); this.satellite = texture; this.material.uniforms.satelliteMap.value = texture; }
   setQuality(q: Quality) { this.material.uniforms.steps.value = q === 'ultra' ? 144 : q === 'high' ? 96 : 64; }
-  dispose() { this.radar.dispose(); this.forecastClouds.dispose(); this.noise.dispose(); this.global.dispose(); this.field.dispose(); this.satellite.dispose(); this.material.dispose(); this.mesh.geometry.dispose(); }
+  dispose() { this.profile.dispose(); this.radar.dispose(); this.forecastClouds.dispose(); this.noise.dispose(); this.global.dispose(); this.field.dispose(); this.satellite.dispose(); this.material.dispose(); this.mesh.geometry.dispose(); }
 }

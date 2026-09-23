@@ -11,6 +11,13 @@ export function parseOpticalPalette(xml) {
   }).filter(e => Number.isFinite(e.value));
 }
 
+// Cloud cover is published per pressure level with its own geopotential height, so the column can be
+// resampled to true altitude instead of collapsing into three fixed slabs. Levels stop at 150 hPa
+// (about 14 km): nothing above that is inside the rendered cloud shell.
+export const CLOUD_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150];
+// Surface and convective fields: cloud base, glaciation level, convective energy, and the winds at
+// two levels whose difference is the shear that leans a growing column downwind.
+export const SURFACE_FIELDS = ['cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'cloud_cover', 'visibility', 'temperature_2m', 'dew_point_2m', 'precipitation', 'snowfall', 'wind_speed_10m', 'wind_direction_10m', 'cape', 'boundary_layer_height', 'freezing_level_height', 'wind_speed_850hPa', 'wind_direction_850hPa', 'wind_speed_500hPa', 'wind_direction_500hPa'];
 export function regionalGrid(lat, lon) {
   const points = [];
   const widthKm = 160;
@@ -48,11 +55,11 @@ export function registerAtmosphereRoutes(app) {
     try { p = coordinates(req.query); } catch (e) { return res.status(400).json({ error: e.message }); }
     try {
       const { points, widthKm } = regionalGrid(p.lat, p.lon);
-      const hourly = 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,cloud_cover,visibility,temperature_2m,dew_point_2m,precipitation,snowfall,wind_speed_10m,wind_direction_10m,relative_humidity_850hPa,relative_humidity_700hPa,geopotential_height_850hPa,geopotential_height_700hPa';
+      const hourly = [...SURFACE_FIELDS, ...CLOUD_LEVELS.map(l => `cloud_cover_${l}hPa`), ...CLOUD_LEVELS.map(l => `geopotential_height_${l}hPa`)].join(',');
       const params = new URLSearchParams({ latitude: points.map(p => p.lat.toFixed(4)).join(','), longitude: points.map(p => p.lon.toFixed(4)).join(','), hourly, forecast_hours: '26', cell_selection: 'nearest', timezone: 'GMT' });
       const data = await cachedFetch(`https://api.open-meteo.com/v1/forecast?${params}`);
       if (!Array.isArray(data) || data.length !== 25 || !data[12].hourly?.time?.length) throw new Error('Incomplete regional model data');
-      res.json({ widthKm, gridSize: 5, source: 'Open-Meteo', points: points.map((p, i) => ({ ...p, elevation: data[i].elevation, hourly: data[i].hourly })) });
+      res.json({ widthKm, gridSize: 5, source: 'Open-Meteo', levels: CLOUD_LEVELS, points: points.map((p, i) => ({ ...p, elevation: data[i].elevation, hourly: data[i].hourly })) });
     } catch { res.status(502).json({ error: 'Layered atmosphere unavailable. Using the selected point forecast.' }); }
   });
   app.get('/api/observations', async (req, res) => {

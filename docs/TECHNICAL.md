@@ -19,7 +19,7 @@ Camera frames reach the browser only through the local server's allowlisted prox
 | server/index.mjs | Express entry point, point weather, search, storms, static serving |
 | server/point-weather.mjs | Local weather retrieval and fallback caching |
 | server/global-weather.mjs | Coarse global forecast field |
-| server/atmosphere.mjs | Regional weather, METAR and satellite support |
+| server/atmosphere.mjs | Regional weather, METAR and satellite support; per-level cloud profile |
 | server/radar.mjs | NOAA WMS metadata, images and legend |
 | server/flights.mjs | Civilian flight filtering, freshness and provider requests |
 | server/tornadoes.mjs | NWS tornado warning polygons, expiry filtering and centroids |
@@ -83,6 +83,8 @@ All endpoints are under `/api`. Consult their route modules for precise query va
 | /radar | Region metadata, timestamps, bounds and image URLs |
 | /radar/:id.png | Allowlisted NOAA reflectivity image at a validated time |
 | /radar-legend | NOAA reflectivity legend |
+
+`/api/atmosphere` returns a 5x5 grid of hourly columns. Alongside the surface fields it carries `cloud_cover_<level>hPa` and `geopotential_height_<level>hPa` for the fifteen levels in `CLOUD_LEVELS` (1000 to 150 hPa), plus `cape`, `boundary_layer_height`, `freezing_level_height` and winds at 850 and 500 hPa; the level list is echoed as `levels` so the client never guesses it. The client resamples each column onto 32 uniform altitude bins (`profileColumn`), reconciles it against the low/mid/high diagnostics so the result is never emptier than either view (`reconcileColumn`), and uploads a 5x5x32 single-channel volume texture the cloud shader samples at each ray's true altitude. Inside the regional box that column replaces the three fixed slabs, which had unreachable gaps at 4.25-4.8 km and 6.2-10 km. The hurricane study and an analyzed storm keep their own structure and opt out.
 
 Additional routes: `/api/global-weather`, `/api/atmosphere`, `/api/observations`, `/api/roads`, `/api/tiles/:kind/:z/:x/:y`, `/api/satellite-palette`, and `/api/satellite/:date`. Requests validate coordinates and constrain provider paths. Failed upstream responses return explicit errors rather than synthetic live data. Cache and retry behavior varies by route.
 
